@@ -12,9 +12,6 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
           
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        
       - name: Download and Setup Gradle
         run: |
           wget https://services.gradle.org/distributions/gradle-8.2-bin.zip
@@ -22,6 +19,9 @@ jobs:
           echo "GRADLE_HOME=$PWD/gradle-8.2" >> $GITHUB_ENV
           echo "$PWD/gradle-8.2/bin" >> $GITHUB_PATH
           
+      - name: Create local.properties
+        run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
+        
       - name: Build with Gradle
         run: gradle assembleDebug --stacktrace
         
