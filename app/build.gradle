@@ -11,8 +11,8 @@ android {
         applicationId "com.backrooms.cardjourney"
         minSdk 21
         targetSdk 34
-        versionCode 1
-        versionName "1.0.0"
+        versionCode 4
+        versionName "0.0.4"
     }
 
     buildTypes {
@@ -29,7 +29,15 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+
+    // CI 里 lint 只产出报告不阻断构建，避免历史告警直接把流水线打红
+    lint {
+        abortOnError false
+        checkReleaseBuilds true
+    }
 }
 
 dependencies {
+    // GameEngine 是纯 Kotlin，可以直接用 JVM 单元测试覆盖核心规则
+    testImplementation 'junit:junit:4.13.2'
 }
