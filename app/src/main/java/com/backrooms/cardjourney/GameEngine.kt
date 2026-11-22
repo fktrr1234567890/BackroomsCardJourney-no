@@ -365,7 +365,7 @@ class GameEngine {
         checkState()
     }
     
-    fun getSpecialStageName(): String {
+    fun generateSpecialStageName(): String {
         val adj = listOf("扭曲的", "血红的", "耀眼的", "崩坏的", "寂静的", "充满生机的", "贪婪的", "绝望的", "异变的", "未知的")
         val noun = listOf("迷宫", "休息室", "虚空", "祭坛", "捷径", "储藏间", "回廊", "陷阱房", "中转站", "梦境")
         return "特殊关卡 · " + adj.random() + noun.random()
