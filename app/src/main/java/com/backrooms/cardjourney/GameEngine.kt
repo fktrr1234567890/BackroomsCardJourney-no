@@ -30,6 +30,12 @@ class GameEngine {
         const val HAND_TARGET = 6
         const val HAND_MAX = 10
         const val MAX_MONSTERS = 8
+        // 商店报价数量与刷牌规则
+        const val OFFER_SIZE = 3
+        const val REROLL_BASE = 1
+        const val REROLL_MAX_PER_TURN = 4
+        // 每次进入新关卡前遇到 NPC 的概率
+        const val NPC_CHANCE = 0.45
     }
 
     var levelIndex = 0
@@ -58,6 +64,18 @@ class GameEngine {
     var activeEvent: GameEvent? = null
     var specialStageName = ""
     var isSpecial = false
+
+    // ---- 商店报价：本回合固定，取消对话框不会重刷 ----
+    var offerCards = mutableListOf<Card>()
+    var offerRerolls = 0
+    var offersTurn = -1
+
+    // ---- NPC：进入下一关之前的偶遇 ----
+    var pendingNpc: Npc? = null
+    var pendingStageIndex = 0
+    var npcStock = mutableListOf<NpcStock>()
+    var npcTalked = false
+    var npcMeetings = 0
 
     val characters = listOf(
         PlayerChar(0, "流浪者", "默认解锁", 0, 0, false, -1),
@@ -119,10 +137,12 @@ class GameEngine {
         finishedAll = false
         gameOver = false
         cleared = false
+        npcMeetings = 0
         inventory.clear()
         if (char.startItem) {
             inventory.add(ItemLibrary.random(1)[0])
         }
+        pendingNpc = null
         startStage(0)
     }
 
@@ -144,9 +164,16 @@ class GameEngine {
         gameOver = false
         isSpecial = false
         activeEvent = null
+        pendingNpc = null
+        npcStock.clear()
+        npcTalked = false
+        offerCards.clear()
+        offerRerolls = 0
+        offersTurn = -1
         monsters.clear()
         hand.clear()
-        hand.addAll(CardLibrary.random(HAND_TARGET))
+        hand.addAll(CardLibrary.startingHand(HAND_TARGET))
+        ensureOffers()
         if (s.goal == GoalType.KILL_ALL || s.goal == GoalType.BOSS) {
             for (i in 0 until s.monsterCount) {
                 spawnMonster()
@@ -155,12 +182,73 @@ class GameEngine {
         message = "进入 " + s.name
     }
 
+    // ---------- 商店 ----------
+
+    fun ensureOffers(): List<Card> {
+        // 只在"跨回合"时补货：同一回合把三件都买光后不会再免费生成一批
+        if (offerCards.isEmpty() && offersTurn != turn) {
+            offerCards.clear()
+            offerCards.addAll(CardLibrary.offers(OFFER_SIZE))
+            offersTurn = turn
+        }
+        return offerCards
+    }
+
+    /** 主动刷牌：花金币换一批报价，同一回合每刷一次更贵 */
+    fun offerRerollCost(): Int = REROLL_BASE + offerRerolls
+
+    fun rerollOffers(): Int {
+        if (offerRerolls >= REROLL_MAX_PER_TURN) return 2
+        val cost = offerRerollCost()
+        if (coins < cost) return 1
+        coins -= cost
+        offerRerolls++
+        offerCards.clear()
+        offerCards.addAll(CardLibrary.offers(OFFER_SIZE))
+        message = "花 " + cost + " 金币刷新了报价"
+        return 0
+    }
+
+    fun buyOffer(index: Int): Int {
+        val c = offerCards.getOrNull(index) ?: return 3
+        if (hand.size >= HAND_MAX) return 2
+        if (coins < c.cost) return 1
+        coins -= c.cost
+        hand.add(c)
+        offerCards.removeAt(index)
+        boughtThisTurn = true
+        message = "买入 " + c.name
+        return 0
+    }
+
+    // ---------- 假随机（动态难度） ----------
+
+    /** 手牌越多压力越大：怪更强、刷新更频繁；手牌少时可能整关都不刷怪 */
+    fun handPressure(): Double = ((hand.size - HAND_TARGET) / 4.0).coerceIn(-1.2, 1.5)
+
+    fun threatScale(): Double = (1.0 + handPressure() * 0.18).coerceIn(0.65, 1.35)
+
+    fun spawnChance(): Double = (0.42 + handPressure() * 0.30).coerceIn(0.05, 0.95)
+
     fun spawnMonster() {
         if (monsters.size >= MAX_MONSTERS) return
         val s = stage
         val nm = monsterNames.random()
         val sk = monsterSkills.random()
-        monsters.add(Monster(nm, s.monsterHp, s.monsterHp, s.monsterAtk, sk))
+        val hp = (s.monsterHp * threatScale()).toInt().coerceAtLeast(1)
+        val atk = (s.monsterAtk * threatScale()).toInt().coerceAtLeast(1)
+        monsters.add(Monster(nm, hp, hp, atk, sk))
+    }
+
+    /** 按当前手牌压力决定是否额外刷怪（不是每回合必刷） */
+    fun trySpawn() {
+        if (monsters.size >= MAX_MONSTERS) return
+        if (Math.random() > spawnChance()) return
+        spawnMonster()
+        // 手牌特别多时，暗中一次刷两只
+        if (handPressure() >= 0.5 && monsters.size < MAX_MONSTERS && Math.random() < 0.5) {
+            spawnMonster()
+        }
     }
 
     fun playCard(index: Int): Boolean {
@@ -256,6 +344,9 @@ class GameEngine {
         turn++
         ap = 3
         boughtThisTurn = false
+        // 每回合报价过期，下一回合重新报价（同回合取消对话框不会重刷）
+        offerCards.clear()
+        offerRerolls = 0
 
         if (turn % 2 == 0) sanity = max(0, sanity - 1)
 
@@ -268,7 +359,7 @@ class GameEngine {
 
         val s = stage
         if (s.goal != GoalType.KILL_ALL && s.goal != GoalType.BOSS && turn % s.spawnEvery == 0) {
-            spawnMonster()
+            trySpawn()
         }
         refillHand()
         checkState()
@@ -285,7 +376,7 @@ class GameEngine {
         activeEvent = null
         val s = stage
         if (s.goal != GoalType.KILL_ALL && s.goal != GoalType.BOSS && turn % s.spawnEvery == 0) {
-            spawnMonster()
+            trySpawn()
         }
         refillHand()
         checkState()
@@ -299,6 +390,7 @@ class GameEngine {
     fun checkState() {
         if (hp <= 0 || sanity <= 0) {
             hp = max(0, hp)
+            sanity = max(0, sanity)
             gameOver = true
             message = "你倒下了……"
             return
@@ -318,18 +410,174 @@ class GameEngine {
         }
     }
 
+    // ---------- 关卡推进 + NPC ----------
+
+    /** 通关后推进：先掷 NPC，命中则停在 NPC 前，UI 交互后再进关 */
     fun advance() {
         cleared = false
         if (infiniteMode) {
             score++
-            startStage(levelIndex)
+            pendingStageIndex = levelIndex
+            if (!rollNpc(stage)) startStage(levelIndex)
             return
         }
         if (levelIndex >= StageLibrary.stages.size - 1) {
             finishedAll = true
             return
         }
-        startStage(levelIndex + 1)
+        val next = levelIndex + 1
+        pendingStageIndex = next
+        if (!rollNpc(StageLibrary.stages[next])) startStage(next)
+    }
+
+    private fun rollNpc(nextStage: Stage): Boolean {
+        // 孤立效应层级没有活人，只会刷怪
+        if (nextStage.isolation) return false
+        if (Math.random() >= NPC_CHANCE) return false
+        val npc = NpcLibrary.random()
+        pendingNpc = npc
+        npcStock.clear()
+        npcStock.addAll(npc.stock)
+        npcTalked = false
+        npcMeetings++
+        message = "在通往「" + nextStage.name + "」的路上遇到了 " + npc.name
+        return true
+    }
+
+    fun npcAllowed(): Boolean = !stage.isolation
+
+    fun npcTalk(): String {
+        val n = pendingNpc ?: return "没有人可以交谈。"
+        if (npcTalked) return "你们已经聊过了。"
+        npcTalked = true
+        return if (n.friendly) {
+            val line = n.talkLines.random()
+            when ((0..2).random()) {
+                0 -> {
+                    val heal = min(12, maxHp - hp)
+                    hp = min(maxHp, hp + 12)
+                    line + "（生命 +" + heal + "）"
+                }
+                1 -> {
+                    coins += 8
+                    line + "（金币 +8）"
+                }
+                else -> {
+                    sanity = min(100, sanity + 10)
+                    line + "（理智 +10）"
+                }
+            }
+        } else {
+            if (Math.random() < 0.45) {
+                val lost = min(coins, 12)
+                coins -= lost
+                hp = max(0, hp - 8)
+                checkState()
+                "他忽然伸手抢走了你的东西！" + n.talkLines.random() + "（金币 -" + lost + "，生命 -8）"
+            } else {
+                sanity = max(0, sanity - 8)
+                checkState()
+                n.talkLines.random() + "（理智 -8）"
+            }
+        }
+    }
+
+    fun npcBuy(index: Int): String {
+        val n = pendingNpc ?: return "这里没有商人。"
+        val st = npcStock.getOrNull(index) ?: return "这件东西已经不在了。"
+        if (coins < st.price) return "金币不足。"
+        if (st.card != null && hand.size >= HAND_MAX) return "手牌已满。"
+        coins -= st.price
+        // 坏 NPC 会卖假货
+        if (!n.friendly && Math.random() < 0.35) {
+            npcStock.removeAt(index)
+            sanity = max(0, sanity - 5)
+            checkState()
+            return "付了 " + st.price + " 金，盒子是空的……（理智 -5）"
+        }
+        if (st.card != null) hand.add(st.card)
+        if (st.item != null) inventory.add(st.item)
+        npcStock.removeAt(index)
+        message = "从 " + n.name + " 处买入 " + st.name
+        checkState()
+        return "获得「" + st.name + "」（-" + st.price + " 金）"
+    }
+
+    fun resolveNpc() {
+        pendingNpc = null
+        npcStock.clear()
+        npcTalked = false
+        startStage(pendingStageIndex)
+    }
+
+    // ---------- 管理员调试接口 ----------
+
+    fun adminSpawn(name: String, hp: Int, atk: Int, skill: String) {
+        if (monsters.size >= MAX_MONSTERS) return
+        val h = hp.coerceAtLeast(1)
+        monsters.add(Monster(name, h, h, atk.coerceAtLeast(0), skill))
+        message = "管理员召唤了 " + name
+    }
+
+    fun adminKillAll() {
+        monsters.clear()
+        target = 0
+        message = "管理员清空了怪物"
+        checkState()
+    }
+
+    fun adminKill(index: Int) {
+        if (index < 0 || index >= monsters.size) return
+        monsters.removeAt(index)
+        if (monsters.isEmpty()) target = 0 else target = target.coerceIn(0, monsters.size - 1)
+        message = "管理员销毁了一只怪物"
+        checkState()
+    }
+
+    fun adminJumpTo(idx: Int) {
+        infiniteMode = false
+        finishedAll = false
+        gameOver = false
+        startStage(idx.coerceIn(0, StageLibrary.stages.size - 1))
+    }
+
+    fun adminJumpInfinite(round: Int) {
+        infiniteMode = true
+        score = round.coerceAtLeast(0)
+        gameOver = false
+        startStage(levelIndex)
+    }
+
+    fun adminSummonNpc(kind: NpcKind? = null) {
+        val npc = if (kind == null) NpcLibrary.random() else NpcLibrary.byKind(kind)
+        pendingNpc = npc
+        npcStock.clear()
+        npcStock.addAll(npc.stock)
+        npcTalked = false
+        npcMeetings++
+        message = "管理员召来了 " + npc.name
+    }
+
+    fun adminEndStage() {
+        val s = stage
+        cleared = false
+        when (s.goal) {
+            GoalType.KILL_ALL, GoalType.BOSS -> monsters.clear()
+            GoalType.SURVIVE -> turn = max(turn, s.goalValue)
+            else -> progress = max(progress, s.goalValue)
+        }
+        checkState()
+    }
+
+    fun adminHeal() {
+        hp = maxHp
+        sanity = 100
+        gameOver = false
+        message = "管理员恢复了你的状态"
+    }
+
+    fun adminCoins(n: Int) {
+        coins = max(0, coins + n)
     }
 
     fun useItem(index: Int) {
