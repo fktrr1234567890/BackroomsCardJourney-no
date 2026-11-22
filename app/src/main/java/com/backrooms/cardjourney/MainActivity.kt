@@ -4,11 +4,14 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -20,8 +23,11 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import android.media.ToneGenerator
 import kotlin.math.max
 import kotlin.math.sin
+
+private const val APP_VERSION = "0.0.4"
 
 class MainActivity : Activity() {
     private lateinit var root: FrameLayout
@@ -33,6 +39,9 @@ class MainActivity : Activity() {
 
     private var audioTrack: AudioTrack? = null
     private var audioThread: Thread? = null
+    private var bgmStarted = false
+    private var toneGen: ToneGenerator? = null
+    private var screen = "menu"
 
     private val C_BG = 0xFF0D0D0D.toInt()
     private val C_PANEL = 0xFF1B1B1B.toInt()
@@ -52,34 +61,44 @@ class MainActivity : Activity() {
         setContentView(root)
         loadSettings()
         applyBrightness()
-        startBgm()
         showMainMenu()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (musicVol > 0) startBgm()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 切到后台/锁屏时停掉底噪，避免后台持续占用音频焦点
+        stopBgm()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         stopBgm()
+        toneGen?.release()
+        toneGen = null
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        when (screen) {
+            "game" -> { saveGame(); showMainMenu() }
+            "menu" -> super.onBackPressed()
+            else -> showMainMenu()
+        }
     }
 
     private fun startBgm() {
-        if (musicVol <= 0 || audioTrack != null) return
+        if (musicVol <= 0 || bgmStarted) return
+        bgmStarted = true
         audioThread = Thread {
             val sampleRate = 44100
             val bufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
             try {
-                audioTrack = AudioTrack.Builder()
-                    .setAudioAttributes(AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_GAME)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build())
-                    .setAudioFormat(AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build())
-                    .setBufferSizeInBytes(bufferSize * 2)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
+                audioTrack = buildTrack(sampleRate, bufferSize)
 
                 audioTrack?.play()
                 val buffer = ShortArray(bufferSize)
@@ -109,7 +128,36 @@ class MainActivity : Activity() {
             audioTrack?.release()
         } catch (e: Exception) {}
         audioTrack = null
+        bgmStarted = false
     }
+
+    // AudioTrack.Builder 是 API 23 才提供的，minSdk 21 的机器必须走老构造函数，否则闪退
+    private fun buildTrack(sampleRate: Int, bufferSize: Int): AudioTrack =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build())
+                .setAudioFormat(AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build())
+                .setBufferSizeInBytes(bufferSize * 2)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            AudioTrack(
+                AudioManager.STREAM_MUSIC,
+                sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize * 2,
+                AudioTrack.MODE_STREAM
+            )
+        }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
@@ -184,13 +232,12 @@ class MainActivity : Activity() {
     }
 
     private fun playClick() {
-        if (soundVol > 0) {
-            try {
-                val tg = android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, soundVol * 40 / 100)
-                tg.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 40)
-                tg.release()
-            } catch (e: Exception) {}
-        }
+        if (soundVol <= 0) return
+        try {
+            // 每次点击都 new ToneGenerator 会造成明显延迟和 GC 抖动，这里复用一个实例
+            val tg = toneGen ?: ToneGenerator(AudioManager.STREAM_MUSIC, soundVol * 40 / 100).also { toneGen = it }
+            tg.startTone(ToneGenerator.TONE_PROP_BEEP, 40)
+        } catch (e: Exception) {}
     }
 
     private fun loadSettings() {
@@ -210,6 +257,8 @@ class MainActivity : Activity() {
     }
 
     private fun saveGame() {
+        // 死亡存档没有意义，直接用继续游戏会把死人复活
+        if (engine.gameOver) return
         val cid = engine.currentChar?.id ?: 0
         prefs.edit()
             .putBoolean("has_save", true)
@@ -219,8 +268,43 @@ class MainActivity : Activity() {
             .putBoolean("infinite", engine.infiniteMode)
             .putInt("completed", engine.completed)
             .putInt("charId", cid)
+            .putInt("hp", engine.hp)
+            .putInt("maxHp", engine.maxHp)
+            .putInt("sanity", engine.sanity)
+            .putInt("turn", engine.turn)
+            .putInt("ap", engine.ap)
+            .putInt("shield", engine.shield)
+            .putInt("progress", engine.progress)
+            .putInt("target", engine.target)
+            .putBoolean("cleared", engine.cleared)
+            .putString("hand", encodeCards(engine.hand))
+            .putString("inv", encodeItems(engine.inventory))
+            .putString("mon", encodeMonsters(engine.monsters))
             .apply()
     }
+
+    private fun encodeCards(cards: List<Card>): String = cards.joinToString("|") { it.id.toString() }
+
+    private fun decodeCards(s: String): List<Card> =
+        s.split("|").mapNotNull { id -> id.toIntOrNull()?.let { CardLibrary.byId(it) } }
+
+    private fun encodeItems(items: List<Item>): String = items.joinToString("|") { it.id.toString() }
+
+    private fun decodeItems(s: String): List<Item> =
+        s.split("|").mapNotNull { id -> id.toIntOrNull()?.let { ItemLibrary.byId(it) } }
+
+    private fun encodeMonsters(list: List<Monster>): String =
+        list.joinToString("|") { m -> m.name + "," + m.hp + "," + m.maxHp + "," + m.atk + "," + m.skill }
+
+    private fun decodeMonsters(s: String): List<Monster> =
+        s.split("|").mapNotNull { rec ->
+            val p = rec.split(",")
+            if (p.size < 5) return@mapNotNull null
+            val hp = p[1].toIntOrNull() ?: return@mapNotNull null
+            val maxHp = p[2].toIntOrNull() ?: hp
+            val atk = p[3].toIntOrNull() ?: return@mapNotNull null
+            Monster(p[0], hp, maxHp, atk, p[4])
+        }
 
     private fun hasSave(): Boolean = prefs.getBoolean("has_save", false)
 
@@ -236,12 +320,34 @@ class MainActivity : Activity() {
         engine.score = prefs.getInt("score", 0)
         engine.infiniteMode = prefs.getBoolean("infinite", false)
         engine.completed = prefs.getInt("completed", 0)
-        engine.startStage(engine.levelIndex)
+        engine.maxHp = prefs.getInt("maxHp", 100)
+        engine.hp = prefs.getInt("hp", engine.maxHp).coerceIn(1, engine.maxHp)
+        engine.sanity = prefs.getInt("sanity", 100).coerceIn(1, 100)
+        engine.turn = prefs.getInt("turn", 0)
+        engine.ap = prefs.getInt("ap", 3)
+        engine.shield = prefs.getInt("shield", 0)
+        engine.progress = prefs.getInt("progress", 0)
+        engine.target = prefs.getInt("target", 0)
+        engine.cleared = false
+        engine.gameOver = false
+        engine.isSpecial = false
+        engine.activeEvent = null
+        engine.message = "从存档继续"
+        engine.monsters.clear()
+        engine.monsters.addAll(decodeMonsters(prefs.getString("mon", "") ?: ""))
+        engine.hand.clear()
+        engine.hand.addAll(decodeCards(prefs.getString("hand", "") ?: ""))
+        if (engine.hand.isEmpty()) engine.hand.addAll(CardLibrary.random(GameEngine.HAND_TARGET))
+        engine.inventory.clear()
+        engine.inventory.addAll(decodeItems(prefs.getString("inv", "") ?: ""))
         overDialogShown = false
         showGame()
     }
 
     private fun showMainMenu() {
+        screen = "menu"
+        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
+        root.background = ColorDrawable(C_BG)
         root.removeAllViews()
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
@@ -263,6 +369,9 @@ class MainActivity : Activity() {
     }
 
     private fun showCharacterSelect() {
+        screen = "char"
+        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
+        root.background = ColorDrawable(C_BG)
         root.removeAllViews()
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
@@ -322,7 +431,7 @@ class MainActivity : Activity() {
 
     private fun showEventDialog() {
         val evt = engine.activeEvent ?: return
-        
+
         val effectMsg = StringBuilder()
         effectMsg.append(evt.desc).append("\n\n【结算结果】\n")
         if (evt.hpChange != 0) effectMsg.append("生命 ").append(if (evt.hpChange > 0) "+" else "").append(evt.hpChange).append("\n")
@@ -344,6 +453,7 @@ class MainActivity : Activity() {
     }
 
     private fun showGame() {
+        screen = "game"
         root.removeAllViews()
         val s = engine.stage
         val bg = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(s.bgStart, s.bgEnd))
@@ -382,26 +492,42 @@ class MainActivity : Activity() {
         midLayout.addView(leftBox, leftLp)
 
         leftBox.addView(tv(s.name, 15f, C_ACCENT, true), lpFull())
+        leftBox.addView(tv(s.subtitle, 11f, C_DIM), lpFull())
         leftBox.addView(tv("目标: " + s.goal.label + "  " + goalText(), 12f, C_TEXT, true), lpFull())
+        // engine.message 之前全程没有出口，击倒/自爆/事件提示全部被丢弃
+        leftBox.addView(tv("» " + engine.message, 11f, C_BLUE), lpFull())
 
         val monScroll = ScrollView(this)
         leftBox.addView(monScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f })
         val monBox = LinearLayout(this)
         monBox.orientation = LinearLayout.VERTICAL
         monScroll.addView(monBox, lpFull())
-        
+
         if (engine.monsters.isEmpty()) {
             monBox.addView(tv("周围暂时安全……", 12f, C_DIM), lpFull())
         } else {
-            for (m in engine.monsters) {
+            for ((mi, m) in engine.monsters.withIndex()) {
+                val isTarget = mi == engine.target.coerceIn(0, engine.monsters.size - 1)
                 val row = LinearLayout(this)
                 row.orientation = LinearLayout.VERTICAL
-                row.background = roundedStroke(C_PANEL2, dp(6).toFloat(), dp(1), C_RED)
+                // 可点击选择攻击目标，被选中的怪用金色描边
+                row.background = roundedStroke(
+                    if (isTarget) C_PANEL2 else C_PANEL,
+                    dp(6).toFloat(),
+                    dp(if (isTarget) 2 else 1),
+                    if (isTarget) C_ACCENT else C_RED
+                )
+                row.isClickable = true
+                row.setOnClickListener {
+                    playClick()
+                    engine.target = mi
+                    update()
+                }
                 row.setPadding(dp(6), dp(6), dp(6), dp(6))
                 val rlp = lpFull()
                 rlp.topMargin = dp(4)
                 monBox.addView(row, rlp)
-                row.addView(tv(m.name + " [" + m.skill + "]", 13f, C_RED, true), lpFull())
+                row.addView(tv((if (isTarget) "▶ " else "") + m.name + " [" + m.skill + "]", 13f, C_RED, true), lpFull())
                 row.addView(tv("HP " + m.hp + "/" + m.maxHp + " ATK " + m.atk, 11f, C_DIM), lpFull())
             }
         }
@@ -469,18 +595,18 @@ class MainActivity : Activity() {
             playClick()
             onClick()
         }
-        
+
         // 固定卡牌宽度，高度填满，确保能看见
         val p = LinearLayout.LayoutParams(dp(85), ViewGroup.LayoutParams.MATCH_PARENT)
         p.setMargins(dp(4), 0, dp(4), 0)
         box.layoutParams = p
-        
+
         val nameTv = tv(card.name, 12f, C_TEXT, true)
         nameTv.maxLines = 2
         box.addView(nameTv, lpFull())
-        
+
         box.addView(tv(card.category.label, 10f, card.category.color, true), lpFull())
-        
+
         val descTv = tv(card.desc, 10f, C_DIM)
         descTv.maxLines = 3
         box.addView(descTv, lpFull())
@@ -488,18 +614,36 @@ class MainActivity : Activity() {
     }
 
     private fun buyCardDialog() {
-        if (engine.boughtThisTurn || engine.coins < 2) {
-            Toast.makeText(this, "无法购买", Toast.LENGTH_SHORT).show()
+        if (engine.boughtThisTurn) {
+            Toast.makeText(this, "本回合已经买过了", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (engine.hand.size >= GameEngine.HAND_MAX) {
+            Toast.makeText(this, "手牌已满", Toast.LENGTH_SHORT).show()
             return
         }
         val picks = CardLibrary.random(3)
-        val labels = Array<CharSequence>(picks.size) { i -> picks[i].name + "\n" + picks[i].desc }
-        AlertDialog.Builder(this).setTitle("花 2 金币购买").setItems(labels) { _, which ->
-            engine.coins -= 2
-            engine.hand.add(picks[which])
-            engine.boughtThisTurn = true
-            update()
-        }.setNegativeButton("取消", null).show()
+        // 卡牌自带 cost，之前算出来却没用，买卡永远 2 金
+        val labels = Array<CharSequence>(picks.size) { i ->
+            picks[i].name + "  (" + picks[i].cost + "金)\n" + picks[i].desc
+        }
+        AlertDialog.Builder(this)
+            .setTitle("买卡 (你有 " + engine.coins + " 金币)")
+            .setItems(labels) { _, which ->
+                val card = picks[which]
+                if (engine.coins < card.cost) {
+                    Toast.makeText(this, "金币不足", Toast.LENGTH_SHORT).show()
+                } else if (engine.hand.size >= GameEngine.HAND_MAX) {
+                    Toast.makeText(this, "手牌已满", Toast.LENGTH_SHORT).show()
+                } else {
+                    engine.coins -= card.cost
+                    engine.hand.add(card)
+                    engine.boughtThisTurn = true
+                }
+                update()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun openShop() {
@@ -634,6 +778,9 @@ class MainActivity : Activity() {
     }
 
     private fun showSettings() {
+        screen = "settings"
+        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
+        root.background = ColorDrawable(C_BG)
         root.removeAllViews()
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
@@ -654,7 +801,7 @@ class MainActivity : Activity() {
                 labelM.text = "背景音乐：" + p + "%"
                 musicVol = p
                 saveSettings()
-                if (musicVol == 0) stopBgm() else if (audioTrack == null) startBgm()
+                if (musicVol == 0) stopBgm() else if (!bgmStarted) startBgm()
             }
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
@@ -699,6 +846,9 @@ class MainActivity : Activity() {
     }
 
     private fun showAbout() {
+        screen = "about"
+        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
+        root.background = ColorDrawable(C_BG)
         root.removeAllViews()
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
@@ -706,7 +856,7 @@ class MainActivity : Activity() {
         ll.setPadding(dp(24), dp(24), dp(24), dp(24))
         sv.addView(ll, lpFull())
         root.addView(sv, lpFull())
-        ll.addView(tv("关于详情 v2.2", 28f, C_ACCENT, true))
+        ll.addView(tv("关于详情 v" + APP_VERSION, 28f, C_ACCENT, true))
         ll.addView(spacer(16))
         ll.addView(tv("已更新：\n1. 修复事件完成后的卡黑屏Bug\n2. 修复卡牌在横屏下被挤压不显示的问题\n3. 加入纯代码生成的后室底噪背景音乐（可在设置里调节）\n4. 新增 12 个角色和特殊关卡系统", 14f, C_TEXT))
         ll.addView(spacer(30))
