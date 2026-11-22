@@ -61,7 +61,6 @@ class MainActivity : Activity() {
         stopBgm()
     }
 
-    // ====== 纯代码生成后室底噪（荧光灯嗡嗡声） ======
     private fun startBgm() {
         if (musicVol <= 0 || audioTrack != null) return
         audioThread = Thread {
@@ -88,7 +87,6 @@ class MainActivity : Activity() {
                 while (!Thread.currentThread().isInterrupted && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
                     for (i in buffer.indices) {
                         val t = phase / sampleRate.toDouble()
-                        // 50Hz 低频轰鸣 + 120Hz 荧光灯电流声 + 微弱白噪音
                         val sine = sin(2.0 * Math.PI * 50.0 * t) * 0.1 + sin(2.0 * Math.PI * 120.0 * t) * 0.05
                         val noise = (Math.random() * 2 - 1) * 0.015
                         buffer[i] = ((sine + noise) * Short.MAX_VALUE * (musicVol / 100.0)).toInt().toShort()
@@ -113,7 +111,6 @@ class MainActivity : Activity() {
         audioTrack = null
     }
 
-    // ====== 基础 UI 工具 ======
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun rounded(color: Int, radius: Float): GradientDrawable {
@@ -158,8 +155,8 @@ class MainActivity : Activity() {
     private fun actionBtn(text: String, bg: Int = C_ACCENT, fg: Int = Color.BLACK, onClick: () -> Unit): TextView {
         val v = tv(text, 14f, fg, true)
         v.gravity = Gravity.CENTER
-        v.background = rounded(bg, dp(10).toFloat())
-        v.setPadding(dp(12), dp(12), dp(12), dp(12))
+        v.background = rounded(bg, dp(8).toFloat())
+        v.setPadding(dp(8), dp(10), dp(8), dp(10))
         v.isClickable = true
         v.setOnClickListener {
             playClick()
@@ -171,8 +168,8 @@ class MainActivity : Activity() {
     private fun chip(text: String, color: Int): TextView {
         val v = tv(text, 12f, Color.WHITE, true)
         v.gravity = Gravity.CENTER
-        v.background = rounded(color, dp(8).toFloat())
-        v.setPadding(dp(6), dp(8), dp(6), dp(8))
+        v.background = rounded(color, dp(6).toFloat())
+        v.setPadding(dp(4), dp(6), dp(4), dp(6))
         return v
     }
 
@@ -326,30 +323,22 @@ class MainActivity : Activity() {
     private fun showEventDialog() {
         val evt = engine.activeEvent ?: return
         
-        // 构建明确的好处/坏处提示
         val effectMsg = StringBuilder()
         effectMsg.append(evt.desc).append("\n\n【结算结果】\n")
-        if (evt.hpChange != 0) {
-            effectMsg.append("生命 ").append(if (evt.hpChange > 0) "+" else "").append(evt.hpChange).append("\n")
-        }
-        if (evt.coinChange != 0) {
-            effectMsg.append("金币 ").append(if (evt.coinChange > 0) "+" else "").append(evt.coinChange).append("\n")
-        }
-        if (evt.progChange != 0) {
-            effectMsg.append("进度 ").append(if (evt.progChange > 0) "+" else "").append(evt.progChange).append("\n")
-        }
-        if (evt.hpChange == 0 && evt.coinChange == 0 && evt.progChange == 0) {
-            effectMsg.append("无事发生……\n")
-        }
+        if (evt.hpChange != 0) effectMsg.append("生命 ").append(if (evt.hpChange > 0) "+" else "").append(evt.hpChange).append("\n")
+        if (evt.coinChange != 0) effectMsg.append("金币 ").append(if (evt.coinChange > 0) "+" else "").append(evt.coinChange).append("\n")
+        if (evt.progChange != 0) effectMsg.append("进度 ").append(if (evt.progChange > 0) "+" else "").append(evt.progChange).append("\n")
+        if (evt.hpChange == 0 && evt.coinChange == 0 && evt.progChange == 0) effectMsg.append("无事发生……\n")
 
         val b = AlertDialog.Builder(this)
         b.setTitle(evt.title)
         b.setMessage(effectMsg.toString())
         b.setCancelable(false)
         b.setPositiveButton("确认") { dialog, _ ->
-            dialog.dismiss() // 确保先关闭弹窗
+            dialog.dismiss()
             engine.resolveEvent()
-            update()
+            // 使用 post 确保关闭弹窗后再重绘界面，解决卡黑屏问题
+            root.post { update() }
         }
         b.show()
     }
@@ -362,61 +351,77 @@ class MainActivity : Activity() {
 
         val main = LinearLayout(this)
         main.orientation = LinearLayout.VERTICAL
-        main.setPadding(dp(10), dp(10), dp(10), dp(10))
+        main.setPadding(dp(6), dp(6), dp(6), dp(6))
 
+        // 1. 顶部状态栏
         val status = LinearLayout(this)
         status.orientation = LinearLayout.HORIZONTAL
-        main.addView(status, lpFull())
-        status.addView(chip("生命 " + engine.hp + "/" + engine.maxHp, C_RED), lpWeight(1f, dp(3)))
-        status.addView(chip("理智 " + engine.sanity, C_PURPLE), lpWeight(1f, dp(3)))
-        status.addView(chip("金币 " + engine.coins, C_ACCENT), lpWeight(1f, dp(3)))
-        status.addView(chip("进度 " + engine.progress, C_BLUE), lpWeight(1f, dp(3)))
-        status.addView(chip("行动力 " + engine.ap, C_PANEL2), lpWeight(1f, dp(3)))
+        main.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        status.addView(chip("生命 " + engine.hp + "/" + engine.maxHp, C_RED), lpWeight(1f, dp(2)))
+        status.addView(chip("理智 " + engine.sanity, C_PURPLE), lpWeight(1f, dp(2)))
+        status.addView(chip("金币 " + engine.coins, C_ACCENT), lpWeight(1f, dp(2)))
+        status.addView(chip("进度 " + engine.progress, C_BLUE), lpWeight(1f, dp(2)))
+        status.addView(chip("行动力 " + engine.ap, C_PANEL2), lpWeight(1f, dp(2)))
 
+        // 2. 中间核心区 (重要：权重分配，占满剩余空间)
         val midLayout = LinearLayout(this)
         midLayout.orientation = LinearLayout.HORIZONTAL
-        val midLp = lpFull()
-        midLp.topMargin = dp(8)
+        val midLp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0)
+        midLp.weight = 1f
+        midLp.topMargin = dp(6)
         main.addView(midLayout, midLp)
 
+        // 左侧：信息与怪物
         val leftBox = LinearLayout(this)
         leftBox.orientation = LinearLayout.VERTICAL
-        leftBox.background = rounded(C_PANEL, dp(12).toFloat())
-        leftBox.setPadding(dp(10), dp(10), dp(10), dp(10))
-        midLayout.addView(leftBox, lpWeight(1f, dp(4)))
+        leftBox.background = rounded(C_PANEL, dp(8).toFloat())
+        leftBox.setPadding(dp(8), dp(8), dp(8), dp(8))
+        val leftLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
+        leftLp.weight = 1f
+        leftLp.setMargins(0, 0, dp(4), 0)
+        midLayout.addView(leftBox, leftLp)
 
-        leftBox.addView(tv(s.name, 16f, C_ACCENT, true), lpFull())
+        leftBox.addView(tv(s.name, 15f, C_ACCENT, true), lpFull())
         leftBox.addView(tv("目标: " + s.goal.label + "  " + goalText(), 12f, C_TEXT, true), lpFull())
 
         val monScroll = ScrollView(this)
-        leftBox.addView(monScroll, lpWeight(1f, 0))
+        leftBox.addView(monScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f })
         val monBox = LinearLayout(this)
         monBox.orientation = LinearLayout.VERTICAL
         monScroll.addView(monBox, lpFull())
-
+        
         if (engine.monsters.isEmpty()) {
             monBox.addView(tv("周围暂时安全……", 12f, C_DIM), lpFull())
         } else {
             for (m in engine.monsters) {
                 val row = LinearLayout(this)
                 row.orientation = LinearLayout.VERTICAL
-                row.background = roundedStroke(C_PANEL2, dp(8).toFloat(), dp(1), C_RED)
-                row.setPadding(dp(8), dp(8), dp(8), dp(8))
+                row.background = roundedStroke(C_PANEL2, dp(6).toFloat(), dp(1), C_RED)
+                row.setPadding(dp(6), dp(6), dp(6), dp(6))
                 val rlp = lpFull()
                 rlp.topMargin = dp(4)
                 monBox.addView(row, rlp)
                 row.addView(tv(m.name + " [" + m.skill + "]", 13f, C_RED, true), lpFull())
-                row.addView(tv("HP " + m.hp + "/" + m.maxHp + "   ATK " + m.atk, 11f, C_DIM), lpFull())
+                row.addView(tv("HP " + m.hp + "/" + m.maxHp + " ATK " + m.atk, 11f, C_DIM), lpFull())
             }
         }
 
+        // 右侧：手牌区 (分配更多权重)
         val rightBox = LinearLayout(this)
         rightBox.orientation = LinearLayout.VERTICAL
-        midLayout.addView(rightBox, lpWeight(2f, dp(4)))
+        rightBox.background = rounded(C_PANEL, dp(8).toFloat())
+        rightBox.setPadding(dp(4), dp(4), dp(4), dp(4))
+        val rightLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
+        rightLp.weight = 2f
+        rightLp.setMargins(dp(4), 0, 0, 0)
+        midLayout.addView(rightBox, rightLp)
+
+        rightBox.addView(tv("手牌 (点击打出)", 12f, C_DIM, true), lpFull())
 
         val handScroll = HorizontalScrollView(this)
         handScroll.isHorizontalScrollBarEnabled = false
-        rightBox.addView(handScroll, lpWeight(1f, 0))
+        rightBox.addView(handScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f })
+
         val handRow = LinearLayout(this)
         handRow.orientation = LinearLayout.HORIZONTAL
         handScroll.addView(handRow, lpFull())
@@ -429,23 +434,18 @@ class MainActivity : Activity() {
             })
         }
 
+        // 3. 底部操作栏
         val row1 = LinearLayout(this)
         row1.orientation = LinearLayout.HORIZONTAL
-        val r1lp = lpFull()
-        r1lp.topMargin = dp(8)
+        val r1lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        r1lp.topMargin = dp(6)
         main.addView(row1, r1lp)
 
-        row1.addView(actionBtn("结束回合", C_ACCENT) {
-            engine.endTurn()
-            update()
-        }, lpWeight(1f, dp(4)))
-        row1.addView(actionBtn("买卡", C_BLUE) { buyCardDialog() }, lpWeight(1f, dp(4)))
-        row1.addView(actionBtn("商人", C_PURPLE) { openShop() }, lpWeight(1f, dp(4)))
-        row1.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(4)))
-        row1.addView(actionBtn("菜单", C_PANEL2, C_TEXT) {
-            saveGame()
-            showMainMenu()
-        }, lpWeight(1f, dp(4)))
+        row1.addView(actionBtn("结束回合", C_ACCENT) { engine.endTurn(); update() }, lpWeight(1f, dp(2)))
+        row1.addView(actionBtn("买卡", C_BLUE) { buyCardDialog() }, lpWeight(1f, dp(2)))
+        row1.addView(actionBtn("商人", C_PURPLE) { openShop() }, lpWeight(1f, dp(2)))
+        row1.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(2)))
+        row1.addView(actionBtn("菜单", C_PANEL2, C_TEXT) { saveGame(); showMainMenu() }, lpWeight(1f, dp(2)))
 
         root.addView(main, lpFull())
     }
@@ -469,13 +469,18 @@ class MainActivity : Activity() {
             playClick()
             onClick()
         }
-        val p = LinearLayout.LayoutParams(dp(100), dp(140))
-        p.setMargins(dp(3), 0, dp(3), 0)
+        
+        // 固定卡牌宽度，高度填满，确保能看见
+        val p = LinearLayout.LayoutParams(dp(85), ViewGroup.LayoutParams.MATCH_PARENT)
+        p.setMargins(dp(4), 0, dp(4), 0)
         box.layoutParams = p
+        
         val nameTv = tv(card.name, 12f, C_TEXT, true)
         nameTv.maxLines = 2
         box.addView(nameTv, lpFull())
+        
         box.addView(tv(card.category.label, 10f, card.category.color, true), lpFull())
+        
         val descTv = tv(card.desc, 10f, C_DIM)
         descTv.maxLines = 3
         box.addView(descTv, lpFull())
@@ -578,7 +583,7 @@ class MainActivity : Activity() {
                     engine.inventory.add(ItemLibrary.random(1)[0])
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else update()
+                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
                 }
             }
             "bad" -> {
@@ -589,7 +594,7 @@ class MainActivity : Activity() {
                     engine.checkState()
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else update()
+                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
                 }
             }
             else -> {
@@ -599,14 +604,14 @@ class MainActivity : Activity() {
                     engine.coins += 20
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else update()
+                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
                 }
                 b.setNegativeButton("右路") { dialog, _ ->
                     dialog.dismiss()
                     engine.progress += 50
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else update()
+                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
                 }
             }
         }
@@ -639,7 +644,6 @@ class MainActivity : Activity() {
         ll.addView(tv("设置", 28f, C_ACCENT, true))
         ll.addView(spacer(24))
 
-        // 音乐
         val labelM = tv("背景音乐：" + musicVol + "%", 14f, C_TEXT, true)
         ll.addView(labelM)
         val sbM = SeekBar(this)
@@ -657,7 +661,6 @@ class MainActivity : Activity() {
         })
         ll.addView(sbM)
 
-        // 音效
         val labelS = tv("音效音量：" + soundVol + "%", 14f, C_TEXT, true)
         val pS = lpFull(); pS.topMargin = dp(16); ll.addView(labelS, pS)
         val sbS = SeekBar(this)
@@ -674,7 +677,6 @@ class MainActivity : Activity() {
         })
         ll.addView(sbS)
 
-        // 亮度
         val labelB = tv("屏幕亮度：" + bright + "%", 14f, C_TEXT, true)
         val pB = lpFull(); pB.topMargin = dp(16); ll.addView(labelB, pB)
         val sbB = SeekBar(this)
@@ -704,9 +706,9 @@ class MainActivity : Activity() {
         ll.setPadding(dp(24), dp(24), dp(24), dp(24))
         sv.addView(ll, lpFull())
         root.addView(sv, lpFull())
-        ll.addView(tv("关于详情 v2.1", 28f, C_ACCENT, true))
+        ll.addView(tv("关于详情 v2.2", 28f, C_ACCENT, true))
         ll.addView(spacer(16))
-        ll.addView(tv("已更新：\n1. 修复事件界面消失与无提示的Bug\n2. 加入纯代码生成的后室底噪背景音乐（可在设置里调节）\n3. 新增 12 个角色和特殊关卡系统", 14f, C_TEXT))
+        ll.addView(tv("已更新：\n1. 修复事件完成后的卡黑屏Bug\n2. 修复卡牌在横屏下被挤压不显示的问题\n3. 加入纯代码生成的后室底噪背景音乐（可在设置里调节）\n4. 新增 12 个角色和特殊关卡系统", 14f, C_TEXT))
         ll.addView(spacer(30))
         ll.addView(actionBtn("返回主菜单") { showMainMenu() })
     }
