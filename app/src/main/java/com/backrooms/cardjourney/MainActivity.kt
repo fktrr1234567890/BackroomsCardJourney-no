@@ -4,18 +4,17 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioAttributes
-import android.media.AudioFormat
 import android.media.AudioManager
-import android.media.AudioTrack
-import android.os.Build
+import android.media.ToneGenerator
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -23,25 +22,35 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
-import android.media.ToneGenerator
 import kotlin.math.max
-import kotlin.math.sin
 
-private const val APP_VERSION = "0.0.4"
+private const val APP_VERSION = "0.0.5"
+private const val ADMIN_PASSWORD = "15807050240"
+private const val ADMIN_TAP_COUNT = 7
+
+private data class AdminMonster(val name: String, val hp: Int, val atk: Int, val skill: String)
 
 class MainActivity : Activity() {
+
     private lateinit var root: FrameLayout
+    private lateinit var bg: BackroomsBackgroundView
+    private lateinit var content: FrameLayout
     private val engine = GameEngine()
+    private val bgm = BgmPlayer()
+
     private var musicVol = 70
     private var soundVol = 80
     private var bright = 100
     private var overDialogShown = false
-
-    private var audioTrack: AudioTrack? = null
-    private var audioThread: Thread? = null
-    private var bgmStarted = false
     private var toneGen: ToneGenerator? = null
     private var screen = "menu"
+
+    // 管理员：版本号连点打开入口，开始游戏时输入密码后生效
+    private var adminGate = false
+    private var adminActive = false
+    private var versionTaps = 0
+
+    private var currentTheme = -1
 
     private val C_BG = 0xFF0D0D0D.toInt()
     private val C_PANEL = 0xFF1B1B1B.toInt()
@@ -52,12 +61,26 @@ class MainActivity : Activity() {
     private val C_RED = 0xFFE05252.toInt()
     private val C_PURPLE = 0xFFB06BE0.toInt()
     private val C_BLUE = 0xFF5AA8E0.toInt()
+    private val C_GREEN = 0xFF66BB6A.toInt()
 
     private val prefs by lazy { getSharedPreferences("backrooms", Context.MODE_PRIVATE) }
+
+    private val flicker = object : Runnable {
+        override fun run() {
+            if (screen == "game") {
+                bg.invalidate()
+                root.postDelayed(this, 800)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         root = FrameLayout(this)
+        bg = BackroomsBackgroundView(this)
+        root.addView(bg, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        content = FrameLayout(this)
+        root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         loadSettings()
         applyBrightness()
@@ -66,20 +89,22 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (musicVol > 0) startBgm()
+        syncMusic(true)
     }
 
     override fun onPause() {
         super.onPause()
-        // 切到后台/锁屏时停掉底噪，避免后台持续占用音频焦点
-        stopBgm()
+        bgm.stop()
+        currentTheme = -1
+        root.removeCallbacks(flicker)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        stopBgm()
+        bgm.stop()
         toneGen?.release()
         toneGen = null
+        root.removeCallbacks(flicker)
     }
 
     @Deprecated("Deprecated in Java")
@@ -91,73 +116,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun startBgm() {
-        if (musicVol <= 0 || bgmStarted) return
-        bgmStarted = true
-        audioThread = Thread {
-            val sampleRate = 44100
-            val bufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            try {
-                audioTrack = buildTrack(sampleRate, bufferSize)
-
-                audioTrack?.play()
-                val buffer = ShortArray(bufferSize)
-                var phase = 0.0
-                while (!Thread.currentThread().isInterrupted && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                    for (i in buffer.indices) {
-                        val t = phase / sampleRate.toDouble()
-                        val sine = sin(2.0 * Math.PI * 50.0 * t) * 0.1 + sin(2.0 * Math.PI * 120.0 * t) * 0.05
-                        val noise = (Math.random() * 2 - 1) * 0.015
-                        buffer[i] = ((sine + noise) * Short.MAX_VALUE * (musicVol / 100.0)).toInt().toShort()
-                        phase += 1.0
-                    }
-                    audioTrack?.write(buffer, 0, buffer.size)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        audioThread?.start()
-    }
-
-    private fun stopBgm() {
-        audioThread?.interrupt()
-        audioThread = null
-        try {
-            audioTrack?.stop()
-            audioTrack?.release()
-        } catch (e: Exception) {}
-        audioTrack = null
-        bgmStarted = false
-    }
-
-    // AudioTrack.Builder 是 API 23 才提供的，minSdk 21 的机器必须走老构造函数，否则闪退
-    private fun buildTrack(sampleRate: Int, bufferSize: Int): AudioTrack =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_GAME)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build())
-                .setAudioFormat(AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build())
-                .setBufferSizeInBytes(bufferSize * 2)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-        } else {
-            @Suppress("DEPRECATION")
-            AudioTrack(
-                AudioManager.STREAM_MUSIC,
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize * 2,
-                AudioTrack.MODE_STREAM
-            )
-        }
+    // ---------- 基础 UI ----------
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
@@ -185,7 +144,11 @@ class MainActivity : Activity() {
         return v
     }
 
-    private fun lpFull(): LinearLayout.LayoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    private fun lpFull(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    private fun lpMatch(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
 
     private fun lpWeight(w: Float, m: Int): LinearLayout.LayoutParams {
         val p = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -201,10 +164,10 @@ class MainActivity : Activity() {
     }
 
     private fun actionBtn(text: String, bg: Int = C_ACCENT, fg: Int = Color.BLACK, onClick: () -> Unit): TextView {
-        val v = tv(text, 14f, fg, true)
+        val v = tv(text, 13f, fg, true)
         v.gravity = Gravity.CENTER
         v.background = rounded(bg, dp(8).toFloat())
-        v.setPadding(dp(8), dp(10), dp(8), dp(10))
+        v.setPadding(dp(6), dp(10), dp(6), dp(10))
         v.isClickable = true
         v.setOnClickListener {
             playClick()
@@ -214,10 +177,10 @@ class MainActivity : Activity() {
     }
 
     private fun chip(text: String, color: Int): TextView {
-        val v = tv(text, 12f, Color.WHITE, true)
+        val v = tv(text, 11f, Color.WHITE, true)
         v.gravity = Gravity.CENTER
         v.background = rounded(color, dp(6).toFloat())
-        v.setPadding(dp(4), dp(6), dp(4), dp(6))
+        v.setPadding(dp(3), dp(5), dp(3), dp(5))
         return v
     }
 
@@ -237,7 +200,7 @@ class MainActivity : Activity() {
             // 每次点击都 new ToneGenerator 会造成明显延迟和 GC 抖动，这里复用一个实例
             val tg = toneGen ?: ToneGenerator(AudioManager.STREAM_MUSIC, soundVol * 40 / 100).also { toneGen = it }
             tg.startTone(ToneGenerator.TONE_PROP_BEEP, 40)
-        } catch (e: Exception) {}
+        } catch (e: Exception) { }
     }
 
     private fun loadSettings() {
@@ -256,9 +219,51 @@ class MainActivity : Activity() {
         window.attributes = attr
     }
 
+    /** 切换界面时统一复位背景：只有对局画面才露出透视走廊 */
+    private fun beginScreen(name: String, showScene: Boolean) {
+        screen = name
+        content.removeAllViews()
+        if (showScene) {
+            bg.visibility = View.VISIBLE
+            content.background = null
+        } else {
+            bg.visibility = View.GONE
+            content.background = ColorDrawable(C_BG)
+        }
+        if (!showScene) {
+            root.removeCallbacks(flicker)
+            bgm.stop()
+            currentTheme = -1
+        }
+    }
+
+    private fun addScreen(v: View) {
+        content.addView(v, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    // ---------- 音乐 ----------
+
+    private fun syncMusic(force: Boolean = false) {
+        if (screen != "game" || musicVol <= 0) {
+            bgm.stop()
+            currentTheme = -1
+            return
+        }
+        val s = engine.stage
+        if (force || currentTheme != s.theme) {
+            currentTheme = s.theme
+            bgm.start(BgmThemes.forStage(engine.levelIndex, s.theme), musicVol)
+        } else if (!bgm.isPlaying()) {
+            bgm.start(BgmThemes.forStage(engine.levelIndex, s.theme), musicVol)
+        }
+    }
+
+    // ---------- 存档 ----------
+
     private fun saveGame() {
-        // 死亡存档没有意义，直接用继续游戏会把死人复活
-        if (engine.gameOver) return
+        // 死亡存档没有意义；NPC 未落地时不存，避免半状态
+        if (engine.gameOver || engine.pendingNpc != null) return
         val cid = engine.currentChar?.id ?: 0
         prefs.edit()
             .putBoolean("has_save", true)
@@ -276,7 +281,6 @@ class MainActivity : Activity() {
             .putInt("shield", engine.shield)
             .putInt("progress", engine.progress)
             .putInt("target", engine.target)
-            .putBoolean("cleared", engine.cleared)
             .putString("hand", encodeCards(engine.hand))
             .putString("inv", encodeItems(engine.inventory))
             .putString("mon", encodeMonsters(engine.monsters))
@@ -332,53 +336,90 @@ class MainActivity : Activity() {
         engine.gameOver = false
         engine.isSpecial = false
         engine.activeEvent = null
+        engine.pendingNpc = null
         engine.message = "从存档继续"
         engine.monsters.clear()
         engine.monsters.addAll(decodeMonsters(prefs.getString("mon", "") ?: ""))
         engine.hand.clear()
         engine.hand.addAll(decodeCards(prefs.getString("hand", "") ?: ""))
-        if (engine.hand.isEmpty()) engine.hand.addAll(CardLibrary.random(GameEngine.HAND_TARGET))
+        if (engine.hand.isEmpty()) engine.hand.addAll(CardLibrary.startingHand(GameEngine.HAND_TARGET))
         engine.inventory.clear()
         engine.inventory.addAll(decodeItems(prefs.getString("inv", "") ?: ""))
+        engine.offerCards.clear()
+        engine.offerRerolls = 0
+        engine.ensureOffers()
         overDialogShown = false
         showGame()
     }
 
+    // ---------- 主菜单 ----------
+
     private fun showMainMenu() {
-        screen = "menu"
-        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
-        root.background = ColorDrawable(C_BG)
-        root.removeAllViews()
+        beginScreen("menu", false)
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
         ll.orientation = LinearLayout.VERTICAL
         ll.gravity = Gravity.CENTER_HORIZONTAL
         ll.setPadding(dp(24), dp(40), dp(24), dp(40))
         sv.addView(ll, lpFull())
-        root.addView(sv, lpFull())
+        addScreen(sv)
 
         val title = tv("后室卡牌之旅", 34f, C_ACCENT, true)
         title.gravity = Gravity.CENTER
         ll.addView(title, lpFull())
+        val sub = tv("v" + APP_VERSION + "  ·  30 层 + 无限模式", 12f, C_DIM)
+        sub.gravity = Gravity.CENTER
+        ll.addView(sub, lpFull())
         ll.addView(spacer(20))
 
-        ll.addView(menuButton("开始游戏") { showCharacterSelect() })
+        ll.addView(menuButton("开始游戏") { beginGameFlow() })
         ll.addView(menuButton("继续游戏") { continueGame() })
         ll.addView(menuButton("设置") { showSettings() })
         ll.addView(menuButton("关于详情") { showAbout() })
     }
 
+    private fun beginGameFlow() {
+        if (adminGate) showAdminPassword() else showCharacterSelect()
+    }
+
+    private fun showAdminPassword() {
+        val input = EditText(this)
+        input.inputType = InputType.TYPE_CLASS_NUMBER
+        input.hint = "输入管理员密码"
+        input.setTextColor(C_TEXT)
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        box.setPadding(dp(20), dp(10), dp(20), dp(10))
+        box.addView(input, lpFull())
+        AlertDialog.Builder(this)
+            .setTitle("管理员验证")
+            .setView(box)
+            .setCancelable(false)
+            .setPositiveButton("确认") { _, _ ->
+                if (input.text.toString().trim() == ADMIN_PASSWORD) {
+                    adminActive = true
+                    Toast.makeText(this, "管理员已登录", Toast.LENGTH_SHORT).show()
+                } else {
+                    adminActive = false
+                    Toast.makeText(this, "密码错误", Toast.LENGTH_SHORT).show()
+                }
+                showCharacterSelect()
+            }
+            .setNegativeButton("取消") { _, _ ->
+                adminActive = false
+                showCharacterSelect()
+            }
+            .show()
+    }
+
     private fun showCharacterSelect() {
-        screen = "char"
-        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
-        root.background = ColorDrawable(C_BG)
-        root.removeAllViews()
+        beginScreen("char", false)
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
         ll.orientation = LinearLayout.VERTICAL
         ll.setPadding(dp(20), dp(20), dp(20), dp(20))
         sv.addView(ll, lpFull())
-        root.addView(sv, lpFull())
+        addScreen(sv)
         ll.addView(tv("选择角色", 24f, C_ACCENT, true))
 
         val maxUnlock = prefs.getInt("max_level", 0)
@@ -406,9 +447,175 @@ class MainActivity : Activity() {
             btn.layoutParams = p
             ll.addView(btn)
         }
+        ll.addView(spacer(16))
+        if (adminActive) {
+            val adminBtn = actionBtn("管理员面板", C_RED, Color.WHITE) { showAdminPanel() }
+            val p = lpFull()
+            p.topMargin = dp(8)
+            adminBtn.layoutParams = p
+            ll.addView(adminBtn)
+        }
         ll.addView(spacer(20))
         ll.addView(actionBtn("返回", C_PANEL2, C_TEXT) { showMainMenu() })
     }
+
+    // ---------- 管理员面板 ----------
+
+    private fun ensureGameRunning() {
+        if (engine.currentChar == null) {
+            engine.newGame(engine.characters[0])
+        }
+    }
+
+    private fun showAdminPanel() {
+        val ll = LinearLayout(this)
+        ll.orientation = LinearLayout.VERTICAL
+        ll.setPadding(dp(16), dp(10), dp(16), dp(10))
+        val sv = ScrollView(this)
+        sv.addView(ll, lpFull())
+        var panel: AlertDialog? = null
+
+        fun addBtn(text: String, color: Int, fg: Int, action: () -> Unit) {
+            val b = actionBtn(text, color, fg) {
+                // 先收起面板，避免二级菜单叠在面板上
+                panel?.dismiss()
+                action()
+            }
+            val p = lpFull()
+            p.topMargin = dp(6)
+            b.layoutParams = p
+            ll.addView(b)
+        }
+
+        ll.addView(tv("管理员面板", 16f, C_ACCENT, true), lpFull())
+        ll.addView(tv("测试用，改动只影响当前运行，不会写入存档", 11f, C_DIM), lpFull())
+        ll.addView(spacer(8))
+
+        addBtn("创造怪物", C_PANEL2, C_TEXT) {
+            ensureGameRunning()
+            adminSpawnMenu()
+        }
+        addBtn("销毁怪物", C_PANEL2, C_TEXT) {
+            ensureGameRunning()
+            adminKillMenu()
+        }
+        addBtn("跳关", C_BLUE, Color.BLACK) {
+            ensureGameRunning()
+            adminJumpMenu()
+        }
+        addBtn("召唤 NPC", C_PURPLE, Color.WHITE) {
+            ensureGameRunning()
+            adminSummonNpcMenu()
+        }
+        addBtn("直接通关本关", C_GREEN, Color.BLACK) {
+            ensureGameRunning()
+            engine.adminEndStage()
+            if (engine.cleared) {
+                saveGame()
+                onStageCleared()
+            } else {
+                update()
+            }
+        }
+        addBtn("回满生命 / 理智", C_PANEL2, C_TEXT) {
+            ensureGameRunning()
+            engine.adminHeal()
+            update()
+        }
+        addBtn("金币 +100", C_PANEL2, C_TEXT) {
+            ensureGameRunning()
+            engine.adminCoins(100)
+            update()
+        }
+        addBtn("关闭管理员面板", C_RED, Color.WHITE) {
+            adminActive = false
+            Toast.makeText(this, "管理员已退出", Toast.LENGTH_SHORT).show()
+            showCharacterSelect()
+        }
+
+        panel = AlertDialog.Builder(this)
+            .setView(sv)
+            .setNegativeButton("收起", null)
+            .create()
+        panel.show()
+    }
+
+    private fun adminSpawnMenu() {
+        val templates = listOf(
+            AdminMonster("窃皮者 · 弱", 30, 6, "无"),
+            AdminMonster("猎犬 · 中", 60, 10, "无"),
+            AdminMonster("笑魇 · 强", 120, 14, "狂暴"),
+            AdminMonster("自爆体", 40, 18, "自爆"),
+            AdminMonster("破甲者", 90, 12, "破甲"),
+            AdminMonster("噬魂者", 80, 10, "噬魂"),
+            AdminMonster("深渊首领", 220, 22, "无")
+        )
+        val labels = Array<CharSequence>(templates.size) { i ->
+            val t = templates[i]
+            t.name + "   HP " + t.hp + " / ATK " + t.atk + " / " + t.skill
+        }
+        AlertDialog.Builder(this)
+            .setTitle("创造怪物")
+            .setItems(labels) { _, which ->
+                val t = templates[which]
+                engine.adminSpawn(t.name, t.hp, t.atk, t.skill)
+                if (screen == "game") update() else showGame()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun adminKillMenu() {
+        if (engine.monsters.isEmpty()) {
+            Toast.makeText(this, "场上没有怪物", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = ArrayList<CharSequence>()
+        labels.add("全部销毁")
+        for (m in engine.monsters) {
+            labels.add(m.name + "  HP " + m.hp + "/" + m.maxHp + "  [" + m.skill + "]")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("销毁怪物")
+            .setItems(Array(labels.size) { labels[it] }) { _, which ->
+                if (which == 0) engine.adminKillAll() else engine.adminKill(which - 1)
+                update()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun adminJumpMenu() {
+        val labels = ArrayList<CharSequence>()
+        labels.add("无限模式 · 第 1 轮")
+        for (s in StageLibrary.stages) labels.add(s.name + "   " + s.goal.label)
+        AlertDialog.Builder(this)
+            .setTitle("跳关")
+            .setItems(Array(labels.size) { labels[it] }) { _, which ->
+                if (which == 0) engine.adminJumpInfinite(0) else engine.adminJumpTo(which - 1)
+                showGame()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun adminSummonNpcMenu() {
+        val kinds = NpcKind.values()
+        val labels = Array<CharSequence>(kinds.size) { i ->
+            kinds[i].label + (if (kinds[i].friendly) "（友善）" else "（敌对）")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("召唤 NPC")
+            .setItems(labels) { _, which ->
+                engine.adminSummonNpc(kinds[which])
+                showGame()
+                showNpcDialog()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    // ---------- 主循环 ----------
 
     private fun update() {
         if (engine.gameOver) {
@@ -418,6 +625,10 @@ class MainActivity : Activity() {
         }
         if (engine.activeEvent != null) {
             showEventDialog()
+            return
+        }
+        if (engine.pendingNpc != null) {
+            showNpcDialog()
             return
         }
         if (engine.cleared) {
@@ -437,27 +648,91 @@ class MainActivity : Activity() {
         if (evt.hpChange != 0) effectMsg.append("生命 ").append(if (evt.hpChange > 0) "+" else "").append(evt.hpChange).append("\n")
         if (evt.coinChange != 0) effectMsg.append("金币 ").append(if (evt.coinChange > 0) "+" else "").append(evt.coinChange).append("\n")
         if (evt.progChange != 0) effectMsg.append("进度 ").append(if (evt.progChange > 0) "+" else "").append(evt.progChange).append("\n")
-        if (evt.hpChange == 0 && evt.coinChange == 0 && evt.progChange == 0) effectMsg.append("无事发生……\n")
-
-        val b = AlertDialog.Builder(this)
-        b.setTitle(evt.title)
-        b.setMessage(effectMsg.toString())
-        b.setCancelable(false)
-        b.setPositiveButton("确认") { dialog, _ ->
-            dialog.dismiss()
-            engine.resolveEvent()
-            // 使用 post 确保关闭弹窗后再重绘界面，解决卡黑屏问题
-            root.post { update() }
+        if (evt.sanityChange != 0) effectMsg.append("理智 ").append(if (evt.sanityChange > 0) "+" else "").append(evt.sanityChange).append("\n")
+        if (evt.hpChange == 0 && evt.coinChange == 0 && evt.progChange == 0 && evt.sanityChange == 0) {
+            effectMsg.append("无事发生……\n")
         }
-        b.show()
+
+        AlertDialog.Builder(this)
+            .setTitle(evt.title)
+            .setMessage(effectMsg.toString())
+            .setCancelable(false)
+            .setPositiveButton("确认") { dialog, _ ->
+                dialog.dismiss()
+                engine.resolveEvent()
+                // 使用 post 确保关闭弹窗后再重绘界面，解决卡黑屏问题
+                root.post { update() }
+            }
+            .show()
     }
 
+    // ---------- NPC ----------
+
+    private fun showNpcDialog() {
+        val npc = engine.pendingNpc ?: return
+        val msg = npc.greeting + "\n\n" + if (npc.kind.friendly) "他看起来可以交谈，也愿意卖点东西。" else "他看起来不太友善，最好小心。"
+        AlertDialog.Builder(this)
+            .setTitle(npc.name + " · " + npc.kind.label)
+            .setMessage(msg)
+            .setCancelable(false)
+            .setPositiveButton(if (engine.npcTalked) "继续前进" else "交谈") { dialog, _ ->
+                if (engine.npcTalked) {
+                    dialog.dismiss()
+                    engine.resolveNpc()
+                    update()
+                } else {
+                    val result = engine.npcTalk()
+                    dialog.dismiss()
+                    AlertDialog.Builder(this)
+                        .setTitle("交谈")
+                        .setMessage(result)
+                        .setPositiveButton("好") { d2, _ ->
+                            d2.dismiss()
+                            if (engine.pendingNpc != null) showNpcDialog() else update()
+                        }
+                        .show()
+                }
+            }
+            .setNeutralButton("交易") { dialog, _ ->
+                dialog.dismiss()
+                showNpcTradeDialog()
+            }
+            .setNegativeButton("离开") { dialog, _ ->
+                dialog.dismiss()
+                engine.resolveNpc()
+                update()
+            }
+            .show()
+    }
+
+    private fun showNpcTradeDialog() {
+        val npc = engine.pendingNpc ?: return
+        if (engine.npcStock.isEmpty()) {
+            Toast.makeText(this, "他没有东西可卖了", Toast.LENGTH_SHORT).show()
+            showNpcDialog()
+            return
+        }
+        val labels = Array<CharSequence>(engine.npcStock.size) { i ->
+            val st = engine.npcStock[i]
+            st.name + "  (" + st.price + "金 · " + st.label + ")\n" + st.desc
+        }
+        AlertDialog.Builder(this)
+            .setTitle(npc.name + " 的小摊（你有 " + engine.coins + " 金）")
+            .setItems(labels) { _, which ->
+                val result = engine.npcBuy(which)
+                Toast.makeText(this, result, Toast.LENGTH_LONG).show()
+                if (engine.pendingNpc != null) showNpcDialog() else update()
+            }
+            .setNegativeButton("不买了", null)
+            .show()
+    }
+
+    // ---------- 对局界面 ----------
+
     private fun showGame() {
-        screen = "game"
-        root.removeAllViews()
+        beginScreen("game", true)
         val s = engine.stage
-        val bg = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(s.bgStart, s.bgEnd))
-        root.background = bg
+        bg.setScene(s.theme, engine.levelIndex)
 
         val main = LinearLayout(this)
         main.orientation = LinearLayout.VERTICAL
@@ -466,14 +741,15 @@ class MainActivity : Activity() {
         // 1. 顶部状态栏
         val status = LinearLayout(this)
         status.orientation = LinearLayout.HORIZONTAL
-        main.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        main.addView(status, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         status.addView(chip("生命 " + engine.hp + "/" + engine.maxHp, C_RED), lpWeight(1f, dp(2)))
         status.addView(chip("理智 " + engine.sanity, C_PURPLE), lpWeight(1f, dp(2)))
         status.addView(chip("金币 " + engine.coins, C_ACCENT), lpWeight(1f, dp(2)))
         status.addView(chip("进度 " + engine.progress, C_BLUE), lpWeight(1f, dp(2)))
         status.addView(chip("行动力 " + engine.ap, C_PANEL2), lpWeight(1f, dp(2)))
 
-        // 2. 中间核心区 (重要：权重分配，占满剩余空间)
+        // 2. 中间核心区（权重分配，占满剩余空间）
         val midLayout = LinearLayout(this)
         midLayout.orientation = LinearLayout.HORIZONTAL
         val midLp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0)
@@ -481,10 +757,10 @@ class MainActivity : Activity() {
         midLp.topMargin = dp(6)
         main.addView(midLayout, midLp)
 
-        // 左侧：信息与怪物
+        // 左侧：关卡信息 + 怪物
         val leftBox = LinearLayout(this)
         leftBox.orientation = LinearLayout.VERTICAL
-        leftBox.background = rounded(C_PANEL, dp(8).toFloat())
+        leftBox.background = roundedStroke(C_PANEL, dp(8).toFloat(), 1, 0x33000000)
         leftBox.setPadding(dp(8), dp(8), dp(8), dp(8))
         val leftLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
         leftLp.weight = 1f
@@ -492,10 +768,11 @@ class MainActivity : Activity() {
         midLayout.addView(leftBox, leftLp)
 
         leftBox.addView(tv(s.name, 15f, C_ACCENT, true), lpFull())
-        leftBox.addView(tv(s.subtitle, 11f, C_DIM), lpFull())
+        val tag = if (s.isolation) "   · 孤立效应（无 NPC）" else ""
+        leftBox.addView(tv(s.subtitle + tag, 11f, C_DIM), lpFull())
         leftBox.addView(tv("目标: " + s.goal.label + "  " + goalText(), 12f, C_TEXT, true), lpFull())
-        // engine.message 之前全程没有出口，击倒/自爆/事件提示全部被丢弃
         leftBox.addView(tv("» " + engine.message, 11f, C_BLUE), lpFull())
+        if (engine.shield > 0) leftBox.addView(tv("护盾 " + engine.shield, 11f, C_BLUE, true), lpFull())
 
         val monScroll = ScrollView(this)
         leftBox.addView(monScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f })
@@ -510,7 +787,6 @@ class MainActivity : Activity() {
                 val isTarget = mi == engine.target.coerceIn(0, engine.monsters.size - 1)
                 val row = LinearLayout(this)
                 row.orientation = LinearLayout.VERTICAL
-                // 可点击选择攻击目标，被选中的怪用金色描边
                 row.background = roundedStroke(
                     if (isTarget) C_PANEL2 else C_PANEL,
                     dp(6).toFloat(),
@@ -532,17 +808,18 @@ class MainActivity : Activity() {
             }
         }
 
-        // 右侧：手牌区 (分配更多权重)
+        // 右侧：手牌
         val rightBox = LinearLayout(this)
         rightBox.orientation = LinearLayout.VERTICAL
-        rightBox.background = rounded(C_PANEL, dp(8).toFloat())
+        rightBox.background = roundedStroke(C_PANEL, dp(8).toFloat(), 1, 0x33000000)
         rightBox.setPadding(dp(4), dp(4), dp(4), dp(4))
         val rightLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
         rightLp.weight = 2f
         rightLp.setMargins(dp(4), 0, 0, 0)
         midLayout.addView(rightBox, rightLp)
 
-        rightBox.addView(tv("手牌 (点击打出)", 12f, C_DIM, true), lpFull())
+        rightBox.addView(tv("手牌 " + engine.hand.size + "/" + GameEngine.HAND_MAX + "  · 点击打出", 12f, C_DIM, true), lpFull())
+        rightBox.addView(tv("本回合报价 " + engine.offerCards.size + " 件 · 刷牌 " + engine.offerRerollCost() + " 金（" + engine.offerRerolls + "/4）", 10f, C_DIM), lpFull())
 
         val handScroll = HorizontalScrollView(this)
         handScroll.isHorizontalScrollBarEnabled = false
@@ -560,20 +837,31 @@ class MainActivity : Activity() {
             })
         }
 
-        // 3. 底部操作栏
+        // 3. 底部操作栏（两排，避免小屏挤成一格）
         val row1 = LinearLayout(this)
         row1.orientation = LinearLayout.HORIZONTAL
         val r1lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         r1lp.topMargin = dp(6)
         main.addView(row1, r1lp)
-
-        row1.addView(actionBtn("结束回合", C_ACCENT) { engine.endTurn(); update() }, lpWeight(1f, dp(2)))
+        row1.addView(actionBtn("结束回合", C_ACCENT) { engine.endTurn(); update() }, lpWeight(1.6f, dp(2)))
         row1.addView(actionBtn("买卡", C_BLUE) { buyCardDialog() }, lpWeight(1f, dp(2)))
-        row1.addView(actionBtn("商人", C_PURPLE) { openShop() }, lpWeight(1f, dp(2)))
-        row1.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(2)))
-        row1.addView(actionBtn("菜单", C_PANEL2, C_TEXT) { saveGame(); showMainMenu() }, lpWeight(1f, dp(2)))
+        row1.addView(actionBtn("刷牌 " + engine.offerRerollCost() + "金", C_PURPLE, Color.WHITE) { rerollWithUi() }, lpWeight(1.1f, dp(2)))
 
-        root.addView(main, lpFull())
+        val row2 = LinearLayout(this)
+        row2.orientation = LinearLayout.HORIZONTAL
+        val r2lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        r2lp.topMargin = dp(4)
+        main.addView(row2, r2lp)
+        row2.addView(actionBtn("商人", C_PURPLE) { openShop() }, lpWeight(1f, dp(2)))
+        row2.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(2)))
+        row2.addView(actionBtn("菜单", C_PANEL2, C_TEXT) { saveGame(); showMainMenu() }, lpWeight(1f, dp(2)))
+
+        addScreen(main)
+
+        syncMusic()
+        bg.invalidate()
+        root.removeCallbacks(flicker)
+        root.postDelayed(flicker, 800)
     }
 
     private fun goalText(): String {
@@ -596,7 +884,6 @@ class MainActivity : Activity() {
             onClick()
         }
 
-        // 固定卡牌宽度，高度填满，确保能看见
         val p = LinearLayout.LayoutParams(dp(85), ViewGroup.LayoutParams.MATCH_PARENT)
         p.setMargins(dp(4), 0, dp(4), 0)
         box.layoutParams = p
@@ -606,6 +893,7 @@ class MainActivity : Activity() {
         box.addView(nameTv, lpFull())
 
         box.addView(tv(card.category.label, 10f, card.category.color, true), lpFull())
+        box.addView(tv(card.rarity + " · " + card.cost + "金", 10f, card.rarityColor, true), lpFull())
 
         val descTv = tv(card.desc, 10f, C_DIM)
         descTv.maxLines = 3
@@ -613,33 +901,43 @@ class MainActivity : Activity() {
         return box
     }
 
+    // ---------- 商店 / 买卡 ----------
+
+    private fun rerollWithUi() {
+        val cost = engine.offerRerollCost()
+        when (engine.rerollOffers()) {
+            0 -> Toast.makeText(this, "已刷新报价（-" + cost + " 金）", Toast.LENGTH_SHORT).show()
+            1 -> Toast.makeText(this, "金币不足", Toast.LENGTH_SHORT).show()
+            else -> Toast.makeText(this, "本回合最多刷 4 次", Toast.LENGTH_SHORT).show()
+        }
+        update()
+    }
+
     private fun buyCardDialog() {
-        if (engine.boughtThisTurn) {
-            Toast.makeText(this, "本回合已经买过了", Toast.LENGTH_SHORT).show()
+        engine.ensureOffers()
+        if (engine.offerCards.isEmpty()) {
+            Toast.makeText(this, "本回合的报价都买完了，可以刷牌", Toast.LENGTH_SHORT).show()
             return
         }
         if (engine.hand.size >= GameEngine.HAND_MAX) {
             Toast.makeText(this, "手牌已满", Toast.LENGTH_SHORT).show()
             return
         }
-        val picks = CardLibrary.random(3)
-        // 卡牌自带 cost，之前算出来却没用，买卡永远 2 金
-        val labels = Array<CharSequence>(picks.size) { i ->
-            picks[i].name + "  (" + picks[i].cost + "金)\n" + picks[i].desc
+        // 同一回合内取消再点开，报价不变：不会再被用来免费刷牌
+        val labels = Array<CharSequence>(engine.offerCards.size) { i ->
+            val c = engine.offerCards[i]
+            c.name + "  (" + c.cost + "金 · " + c.rarity + ")\n" + c.desc
         }
         AlertDialog.Builder(this)
-            .setTitle("买卡 (你有 " + engine.coins + " 金币)")
+            .setTitle("买卡（你有 " + engine.coins + " 金币）")
             .setItems(labels) { _, which ->
-                val card = picks[which]
-                if (engine.coins < card.cost) {
-                    Toast.makeText(this, "金币不足", Toast.LENGTH_SHORT).show()
-                } else if (engine.hand.size >= GameEngine.HAND_MAX) {
-                    Toast.makeText(this, "手牌已满", Toast.LENGTH_SHORT).show()
-                } else {
-                    engine.coins -= card.cost
-                    engine.hand.add(card)
-                    engine.boughtThisTurn = true
+                val msg = when (engine.buyOffer(which)) {
+                    0 -> "买入成功"
+                    1 -> "金币不足"
+                    2 -> "手牌已满"
+                    else -> "这件已经卖掉了"
                 }
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                 update()
             }
             .setNegativeButton("取消", null)
@@ -648,12 +946,15 @@ class MainActivity : Activity() {
 
     private fun openShop() {
         val picks = ItemLibrary.random(3)
-        val labels = Array<CharSequence>(picks.size) { i -> picks[i].name + " (" + picks[i].price + "金)\n" + picks[i].desc }
-        AlertDialog.Builder(this).setTitle("流浪商人 (你有 " + engine.coins + " 金币)").setItems(labels) { _, which ->
+        val labels = Array<CharSequence>(picks.size) { i ->
+            picks[i].name + " (" + picks[i].price + "金)\n" + picks[i].desc
+        }
+        AlertDialog.Builder(this).setTitle("流浪商人（你有 " + engine.coins + " 金币)").setItems(labels) { _, which ->
             val item = picks[which]
             if (engine.coins >= item.price) {
                 engine.coins -= item.price
                 engine.inventory.add(item)
+                Toast.makeText(this, "买下 " + item.name, Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "金币不足", Toast.LENGTH_SHORT).show()
             }
@@ -666,12 +967,16 @@ class MainActivity : Activity() {
             Toast.makeText(this, "背包为空", Toast.LENGTH_SHORT).show()
             return
         }
-        val labels = Array<CharSequence>(engine.inventory.size) { i -> engine.inventory[i].name + "\n" + engine.inventory[i].desc }
+        val labels = Array<CharSequence>(engine.inventory.size) { i ->
+            engine.inventory[i].name + "\n" + engine.inventory[i].desc
+        }
         AlertDialog.Builder(this).setTitle("背包").setItems(labels) { _, which ->
             engine.useItem(which)
             update()
         }.setNegativeButton("关闭", null).show()
     }
+
+    // ---------- 通关 / 特殊关 ----------
 
     private fun onStageCleared() {
         engine.cleared = false
@@ -694,30 +999,38 @@ class MainActivity : Activity() {
 
     private fun showClearedDialog() {
         val s = engine.stage
-        AlertDialog.Builder(this).setTitle("通关！").setMessage("通过了「" + s.name + "」\n获得 " + s.reward + " 金币").setCancelable(false)
+        AlertDialog.Builder(this)
+            .setTitle("通关！")
+            .setMessage("通过了「" + s.name + "」\n获得 " + s.reward + " 金币")
+            .setCancelable(false)
             .setPositiveButton("继续") { _, _ ->
                 engine.advance()
                 if (engine.finishedAll) showAllClearedDialog() else update()
-            }.show()
+            }
+            .show()
     }
 
     private fun showAllClearedDialog() {
-        AlertDialog.Builder(this).setTitle("恭喜！").setMessage("你通过了全部 30 个关卡！\n进入无限模式冲刺高分吧！").setCancelable(false)
+        AlertDialog.Builder(this)
+            .setTitle("恭喜！")
+            .setMessage("你通过了全部 30 个关卡！\n进入无限模式冲刺高分吧！")
+            .setCancelable(false)
             .setPositiveButton("进入无限") { _, _ ->
                 engine.infiniteMode = true
                 engine.score = 0
                 engine.startStage(0)
                 update()
             }
-            .setNegativeButton("主菜单") { _, _ -> showMainMenu() }.show()
+            .setNegativeButton("主菜单") { _, _ -> showMainMenu() }
+            .show()
     }
 
     private fun showSpecialDialog() {
         val r = Math.random()
-        val type = if (r < 0.7) "good" else if (r < 0.8) "bad" else "neutral"
+        val n = if (r < 0.7) "good" else if (r < 0.8) "bad" else "neutral"
         val b = AlertDialog.Builder(this).setTitle(engine.specialStageName).setCancelable(false)
 
-        when (type) {
+        when (n) {
             "good" -> {
                 b.setMessage("这里是安全的避风港。\n生命与理智完全恢复，获得道具。")
                 b.setPositiveButton("好耶") { dialog, _ ->
@@ -765,8 +1078,12 @@ class MainActivity : Activity() {
     private fun showGameOver() {
         if (overDialogShown) return
         overDialogShown = true
-        val sb = "到达关卡：" + engine.stage.name + "\n通关数量：" + engine.completed
-        AlertDialog.Builder(this).setTitle("你倒下了").setMessage(sb).setCancelable(false)
+        val sb = "到达关卡：" + engine.stage.name + "\n通关数量：" + engine.completed +
+            "\n遇到 NPC：" + engine.npcMeetings + " 次"
+        AlertDialog.Builder(this)
+            .setTitle("你倒下了")
+            .setMessage(sb)
+            .setCancelable(false)
             .setPositiveButton("重新开始") { _, _ ->
                 overDialogShown = false
                 showCharacterSelect()
@@ -774,20 +1091,20 @@ class MainActivity : Activity() {
             .setNegativeButton("主菜单") { _, _ ->
                 overDialogShown = false
                 showMainMenu()
-            }.show()
+            }
+            .show()
     }
 
+    // ---------- 设置 / 关于 ----------
+
     private fun showSettings() {
-        screen = "settings"
-        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
-        root.background = ColorDrawable(C_BG)
-        root.removeAllViews()
+        beginScreen("settings", false)
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
         ll.orientation = LinearLayout.VERTICAL
         ll.setPadding(dp(24), dp(24), dp(24), dp(24))
         sv.addView(ll, lpFull())
-        root.addView(sv, lpFull())
+        addScreen(sv)
         ll.addView(tv("设置", 28f, C_ACCENT, true))
         ll.addView(spacer(24))
 
@@ -801,10 +1118,16 @@ class MainActivity : Activity() {
                 labelM.text = "背景音乐：" + p + "%"
                 musicVol = p
                 saveSettings()
-                if (musicVol == 0) stopBgm() else if (!bgmStarted) startBgm()
+                if (musicVol == 0) {
+                    bgm.stop()
+                    currentTheme = -1
+                } else if (screen == "game") {
+                    currentTheme = -1
+                    syncMusic(true)
+                }
             }
-            override fun onStartTrackingTouch(s: SeekBar?) {}
-            override fun onStopTrackingTouch(s: SeekBar?) {}
+            override fun onStartTrackingTouch(s: SeekBar?) { }
+            override fun onStopTrackingTouch(s: SeekBar?) { }
         })
         ll.addView(sbM)
 
@@ -819,8 +1142,8 @@ class MainActivity : Activity() {
                 soundVol = p
                 saveSettings()
             }
-            override fun onStartTrackingTouch(s: SeekBar?) {}
-            override fun onStopTrackingTouch(s: SeekBar?) {}
+            override fun onStartTrackingTouch(s: SeekBar?) { }
+            override fun onStopTrackingTouch(s: SeekBar?) { }
         })
         ll.addView(sbS)
 
@@ -836,8 +1159,8 @@ class MainActivity : Activity() {
                 applyBrightness()
                 saveSettings()
             }
-            override fun onStartTrackingTouch(s: SeekBar?) {}
-            override fun onStopTrackingTouch(s: SeekBar?) {}
+            override fun onStartTrackingTouch(s: SeekBar?) { }
+            override fun onStopTrackingTouch(s: SeekBar?) { }
         })
         ll.addView(sbB)
 
@@ -846,19 +1169,40 @@ class MainActivity : Activity() {
     }
 
     private fun showAbout() {
-        screen = "about"
-        // 关卡会给 root 设置渐变背景，这三个界面必须显式复位，否则浅色关卡会让浅灰文字看不清
-        root.background = ColorDrawable(C_BG)
-        root.removeAllViews()
+        beginScreen("about", false)
         val sv = ScrollView(this)
         val ll = LinearLayout(this)
         ll.orientation = LinearLayout.VERTICAL
         ll.setPadding(dp(24), dp(24), dp(24), dp(24))
         sv.addView(ll, lpFull())
-        root.addView(sv, lpFull())
-        ll.addView(tv("关于详情 v" + APP_VERSION, 28f, C_ACCENT, true))
+        addScreen(sv)
+
+        val ver = tv("关于详情 v" + APP_VERSION, 28f, C_ACCENT, true)
+        ver.setOnClickListener {
+            // 连续点击版本号打开管理员入口
+            versionTaps++
+            if (versionTaps >= ADMIN_TAP_COUNT) {
+                versionTaps = 0
+                adminGate = true
+                Toast.makeText(this, "管理员入口已打开：下次开始游戏会要求密码", Toast.LENGTH_LONG).show()
+            } else if (versionTaps >= 4) {
+                Toast.makeText(this, "再点 " + (ADMIN_TAP_COUNT - versionTaps) + " 次…", Toast.LENGTH_SHORT).show()
+            }
+        }
+        ll.addView(ver)
         ll.addView(spacer(16))
-        ll.addView(tv("已更新：\n1. 修复事件完成后的卡黑屏Bug\n2. 修复卡牌在横屏下被挤压不显示的问题\n3. 加入纯代码生成的后室底噪背景音乐（可在设置里调节）\n4. 新增 12 个角色和特殊关卡系统", 14f, C_TEXT))
+        ll.addView(
+            tv(
+                "已更新：\n1. 背景音乐按层级主题分轨（6 套音色 + 每关移调）\n" +
+                    "2. 手绘透视走廊背景：墙面拼板、灯组闪烁、地砖、管道、污渍、颗粒与暗角\n" +
+                    "3. 卡牌按稀有度加权刷新，强力牌不再满地\n" +
+                    "4. 修复取消买卡可免费刷牌的漏洞，新增刷牌按钮（花金币、本回合限次）\n" +
+                    "5. 新增 NPC：幸存者 / 医生 / 士兵 / 商人 / 邪教徒 / 掠夺者，可交谈、可交易，孤立层级不刷新\n" +
+                    "6. 假随机：手牌越多怪越强越勤，手牌少时整关可能不出怪\n" +
+                    "7. 管理员面板（版本号连点 + 密码）",
+                13f, C_TEXT
+            )
+        )
         ll.addView(spacer(30))
         ll.addView(actionBtn("返回主菜单") { showMainMenu() })
     }
