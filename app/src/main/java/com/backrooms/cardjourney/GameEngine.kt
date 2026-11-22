@@ -3,8 +3,24 @@ import kotlin.math.max
 import kotlin.math.min
 
 data class Monster(val name: String, var hp: Int, val maxHp: Int, var atk: Int, val skill: String)
-data class PlayerChar(val id: Int, val name: String, val desc: String, val maxHpBonus: Int, val coinBonus: Int, val startItem: Boolean, val unlockAt: Int)
-data class GameEvent(val title: String, val desc: String, val hpChange: Int, val coinChange: Int, val progChange: Int)
+
+data class PlayerChar(
+    val id: Int, 
+    val name: String, 
+    val desc: String, 
+    val maxHpBonus: Int, 
+    val coinBonus: Int, 
+    val startItem: Boolean, 
+    val unlockAt: Int
+)
+
+data class GameEvent(
+    val title: String, 
+    val desc: String, 
+    val hpChange: Int, 
+    val coinChange: Int, 
+    val progChange: Int
+)
 
 class GameEngine {
     var levelIndex = 0
@@ -48,12 +64,31 @@ class GameEngine {
         PlayerChar(11, "无限行者", "无限模式3分解锁，全属性", 100, 20, true, -2)
     )
 
-    private val monsterNames = listOf("窃皮者", "猎犬", "无面者", "笑魇", "蠕虫", "派对客", "死亡飞蛾", "巢蛛", "爬行者", "盲者", "缝合者", "拾荒者", "隧道爬虫", "低语者")
-    private val monsterSkills = listOf("无", "无", "无", "吸血", "反伤", "狂暴", "连击", "破甲", "回血", "自爆")
+    private val monsterNames = listOf(
+        "窃皮者", "猎犬", "无面者", "笑魇", "蠕虫", 
+        "派对客", "死亡飞蛾", "巢蛛", "爬行者", "盲者", 
+        "缝合者", "拾荒者", "隧道爬虫", "低语者"
+    )
+    
+    private val monsterSkills = listOf(
+        "无", "无", "无", "吸血", "反伤", 
+        "狂暴", "连击", "破甲", "回血", "自爆"
+    )
 
-    private val evtPlaces = listOf("潮湿的角落", "废弃的箱子", "昏暗的走廊", "破裂的镜子", "生锈的管道", "天花板缝隙", "沾血的布条", "无人的房间", "发光的屏幕", "黑暗的深处")
-    private val evtActions = listOf("你发现了一个背包", "你听到了诡异的低语", "一阵阴风吹过", "你踢到了一个硬物", "一扇门突然打开", "墙壁渗出了液体", "灯光闪烁了一下", "你踩到了陷阱", "有什么东西闪过", "时间仿佛静止了")
-    private val evtResults = listOf(listOf(-15, 5, 0), listOf(0, 10, 15)) 
+    private val evtPlaces = listOf(
+        "潮湿的角落", "废弃的箱子", "昏暗的走廊", "破裂的镜子", "生锈的管道", 
+        "天花板缝隙", "沾血的布条", "无人的房间", "发光的屏幕", "黑暗的深处"
+    )
+    
+    private val evtActions = listOf(
+        "你发现了一个背包", "你听到了诡异的低语", "一阵阴风吹过", "你踢到了一个硬物", "一扇门突然打开", 
+        "墙壁渗出了液体", "灯光闪烁了一下", "你踩到了陷阱", "有什么东西闪过", "时间仿佛静止了"
+    )
+    
+    private val evtResults = listOf(
+        listOf(-15, 5, 0), 
+        listOf(0, 10, 15)
+    ) 
     
     val allEvents = mutableListOf<GameEvent>()
     
