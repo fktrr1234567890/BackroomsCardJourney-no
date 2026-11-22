@@ -65,7 +65,7 @@ class GameEngine {
         PlayerChar(2, "富商", "第6关解锁", 0, 20, false, 6),
         PlayerChar(3, "探险家", "第9关解锁", 0, 0, true, 9),
         PlayerChar(4, "战士", "第12关解锁", 100, 0, false, 12),
-        PlayerChar(5, "黑客", "第13关解锁", 0, 30, false, 15),
+        PlayerChar(5, "黑客", "第15关解锁", 0, 30, false, 15),
         PlayerChar(6, "医生", "第18关解锁", 80, 0, false, 18),
         PlayerChar(7, "小偷", "第21关解锁", 0, 40, false, 21),
         PlayerChar(8, "狂战士", "第24关解锁", 120, 0, false, 24),
