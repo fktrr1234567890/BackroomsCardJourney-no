@@ -103,5 +103,9 @@ object ItemLibrary {
 
     fun random(n: Int): List<Item> = all.shuffled().take(n)
 
+    /** NPC 商店按身份售卖固定类别，这里是同类随机取 n 件 */
+    fun byCategory(cat: ItemCategory, n: Int): List<Item> =
+        all.filter { it.category == cat }.shuffled().take(n)
+
     fun byId(id: Int): Item? = all.getOrNull(id)
 }

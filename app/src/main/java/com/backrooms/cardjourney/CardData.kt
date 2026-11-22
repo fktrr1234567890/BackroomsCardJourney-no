@@ -11,6 +11,10 @@ enum class CardCategory(val label: String, val color: Int) {
     TRADE("交易牌", 0xFFFFCA28.toInt())
 }
 
+/**
+ * weight 是抽卡权重（越大越常见）。数值越高、越少见的牌权重越低，
+ * 这样卡池不再等概率刷，强力牌不会满地都是。
+ */
 data class Card(
     val id: Int,
     val name: String,
@@ -18,9 +22,26 @@ data class Card(
     val v1: Int,
     val v2: Int,
     val cost: Int,
-    val desc: String
+    val desc: String,
+    val weight: Int = 10
 ) {
     val progress: Int get() = (v1 / 2).coerceAtLeast(1)
+
+    val rarity: String
+        get() = when {
+            weight >= 24 -> "常见"
+            weight >= 10 -> "少见"
+            weight >= 4 -> "稀有"
+            else -> "传说"
+        }
+
+    val rarityColor: Int
+        get() = when {
+            weight >= 24 -> 0xFF9E9E9E.toInt()
+            weight >= 10 -> 0xFF66BB6A.toInt()
+            weight >= 4 -> 0xFF42A5F5.toInt()
+            else -> 0xFFFFB300.toInt()
+        }
 }
 
 object CardLibrary {
@@ -75,7 +96,8 @@ object CardLibrary {
             val cat = g.first
             val nouns = g.second
             for (i in 0 until 250) {
-                val name = adjectives[i % 25] + nouns[i / 25]
+                val adjIdx = i % 25
+                val name = adjectives[adjIdx] + nouns[i / 25]
                 var v1 = 0
                 var v2 = 0
                 var d = ""
@@ -121,16 +143,97 @@ object CardLibrary {
                         d = "+$v1 金币，进度 +$v2"
                     }
                 }
-                out.add(Card(id, name, cat, v1, v2, 2 + (i / 25) / 3, d))
+                // 词条越靠后（越稀有）权重越低，价格越贵
+                val w = when {
+                    adjIdx < 9 -> 26
+                    adjIdx < 17 -> 12
+                    adjIdx < 22 -> 4
+                    else -> 1
+                }
+                val price = 2 + when {
+                    adjIdx < 9 -> 0
+                    adjIdx < 17 -> 1
+                    adjIdx < 22 -> 3
+                    else -> 5
+                }
+                out.add(Card(id, name, cat, v1, v2, price, d, w))
                 id++
             }
         }
         out
     }
 
-    fun random(n: Int): List<Card> = all.shuffled().take(n)
+    private fun weightedPick(pool: List<Card>, rand: java.util.Random): Card {
+        var total = 0
+        for (c in pool) total += c.weight
+        var r = rand.nextInt(total.coerceAtLeast(1))
+        for (c in pool) {
+            r -= c.weight
+            if (r < 0) return c
+        }
+        return pool.last()
+    }
 
-    fun randomOne(): Card = all[(Math.random() * all.size).toInt().coerceIn(0, all.size - 1)]
+    /** 按权重随机 n 张，不重复 */
+    fun random(n: Int): List<Card> {
+        if (n <= 0) return emptyList()
+        val rand = java.util.Random()
+        val out = ArrayList<Card>(n)
+        val pool = all.toMutableList()
+        repeat(n) {
+            if (pool.isEmpty()) return@repeat
+            val c = weightedPick(pool, rand)
+            out.add(c)
+            pool.removeAll { it.id == c.id }
+        }
+        return out
+    }
+
+    fun randomOne(): Card = weightedPick(all, java.util.Random())
+
+    /** 起手牌：保证有牌可打（2 张攻击、1 张防御），其余按权重 */
+    fun startingHand(target: Int = 6): List<Card> {
+        val rand = java.util.Random()
+        val out = ArrayList<Card>(target)
+        val combatPool = all.filter { it.category == CardCategory.COMBAT }
+        val defensePool = all.filter { it.category == CardCategory.DEFENSE }
+
+        fun takeFrom(pool: List<Card>) {
+            repeat(30) {
+                val c = weightedPick(pool, rand)
+                if (out.none { it.id == c.id }) {
+                    out.add(c)
+                    return
+                }
+            }
+        }
+
+        repeat(2) { takeFrom(combatPool) }
+        takeFrom(defensePool)
+        while (out.size < target) {
+            val c = randomOne()
+            if (out.none { it.id == c.id }) out.add(c)
+        }
+        return out
+    }
+
+    /** 商店/买卡界面的报价，权重抽卡且不重复 */
+    fun offers(n: Int = 3): List<Card> = random(n)
+
+    // 只抽某一类（NPC 商店按身份售卖）
+    fun byCategory(cat: CardCategory, n: Int): List<Card> {
+        val rand = java.util.Random()
+        val pool = all.filter { it.category == cat }
+        val out = ArrayList<Card>(n)
+        val rest = pool.toMutableList()
+        repeat(n) {
+            if (rest.isEmpty()) return@repeat
+            val c = weightedPick(rest, rand)
+            out.add(c)
+            rest.removeAll { it.id == c.id }
+        }
+        return out
+    }
 
     // id 与下标一一对应，存档只需要保存 id
     fun byId(id: Int): Card? = all.getOrNull(id)
