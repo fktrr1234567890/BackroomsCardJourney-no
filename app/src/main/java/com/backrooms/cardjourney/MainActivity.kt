@@ -47,49 +47,47 @@ class MainActivity : Activity() {
         showMainMenu()
     }
 
-    private fun dp(v: Int): Int { return (v * resources.displayMetrics.density).toInt() }
-    
-    private fun rounded(color: Int, radius: Float): GradientDrawable { 
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun rounded(color: Int, radius: Float): GradientDrawable {
         val g = GradientDrawable()
         g.setColor(color)
         g.cornerRadius = radius
-        return g 
+        return g
     }
-    
-    private fun roundedStroke(fill: Int, radius: Float, stroke: Int, strokeColor: Int): GradientDrawable { 
+
+    private fun roundedStroke(fill: Int, radius: Float, stroke: Int, strokeColor: Int): GradientDrawable {
         val g = GradientDrawable()
         g.setColor(fill)
         g.cornerRadius = radius
         g.setStroke(stroke, strokeColor)
-        return g 
+        return g
     }
-    
-    private fun tv(t: String, size: Float, color: Int = C_TEXT, bold: Boolean = false): TextView { 
+
+    private fun tv(t: String, size: Float, color: Int = C_TEXT, bold: Boolean = false): TextView {
         val v = TextView(this)
         v.text = t
         v.setTextColor(color)
         v.textSize = size
         if (bold) v.setTypeface(null, Typeface.BOLD)
-        return v 
+        return v
     }
-    
-    private fun lpFull(): LinearLayout.LayoutParams { 
-        return LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) 
-    }
-    
-    private fun lpWeight(w: Float, m: Int): LinearLayout.LayoutParams { 
+
+    private fun lpFull(): LinearLayout.LayoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    private fun lpWeight(w: Float, m: Int): LinearLayout.LayoutParams {
         val p = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT)
         p.weight = w
         p.setMargins(m, m, m, m)
-        return p 
+        return p
     }
-    
-    private fun spacer(h: Int): View { 
+
+    private fun spacer(h: Int): View {
         val v = View(this)
         v.layoutParams = LinearLayout.LayoutParams(1, dp(h))
-        return v 
+        return v
     }
-    
+
     private fun actionBtn(text: String, bg: Int = C_ACCENT, fg: Int = Color.BLACK, onClick: () -> Unit): TextView {
         val v = tv(text, 14f, fg, true)
         v.gravity = Gravity.CENTER
@@ -102,51 +100,51 @@ class MainActivity : Activity() {
         }
         return v
     }
-    
-    private fun chip(text: String, color: Int): TextView { 
+
+    private fun chip(text: String, color: Int): TextView {
         val v = tv(text, 12f, Color.WHITE, true)
         v.gravity = Gravity.CENTER
         v.background = rounded(color, dp(8).toFloat())
         v.setPadding(dp(6), dp(8), dp(6), dp(8))
-        return v 
+        return v
     }
-    
-    private fun menuButton(text: String, onClick: () -> Unit): TextView { 
+
+    private fun menuButton(text: String, onClick: () -> Unit): TextView {
         val v = actionBtn(text, C_PANEL2, C_TEXT) { onClick() }
         v.textSize = 17f
         v.setPadding(dp(20), dp(18), dp(20), dp(18))
         val p = lpFull()
         p.topMargin = dp(12)
         v.layoutParams = p
-        return v 
+        return v
     }
-    
+
     private fun playClick() {
-        if (soundVol > 0) { 
-            try { 
+        if (soundVol > 0) {
+            try {
                 val tg = android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, soundVol * 40 / 100)
                 tg.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 40)
-                tg.release() 
-            } catch (e: Exception) {} 
+                tg.release()
+            } catch (e: Exception) {}
         }
     }
-    
-    private fun loadSettings() { 
+
+    private fun loadSettings() {
         soundVol = prefs.getInt("sound", 80)
-        bright = prefs.getInt("bright", 100) 
+        bright = prefs.getInt("bright", 100)
     }
-    
-    private fun saveSettings() { 
-        prefs.edit().putInt("sound", soundVol).putInt("bright", bright).apply() 
+
+    private fun saveSettings() {
+        prefs.edit().putInt("sound", soundVol).putInt("bright", bright).apply()
     }
-    
-    private fun applyBrightness() { 
+
+    private fun applyBrightness() {
         val attr = window.attributes
         attr.screenBrightness = bright.coerceIn(10, 100) / 100f
-        window.attributes = attr 
+        window.attributes = attr
     }
-    
-    private fun saveGame() { 
+
+    private fun saveGame() {
         val cid = engine.currentChar?.id ?: 0
         prefs.edit()
             .putBoolean("has_save", true)
@@ -156,17 +154,15 @@ class MainActivity : Activity() {
             .putBoolean("infinite", engine.infiniteMode)
             .putInt("completed", engine.completed)
             .putInt("charId", cid)
-            .apply() 
-    }
-    
-    private fun hasSave(): Boolean { 
-        return prefs.getBoolean("has_save", false) 
+            .apply()
     }
 
+    private fun hasSave(): Boolean = prefs.getBoolean("has_save", false)
+
     private fun continueGame() {
-        if (!hasSave()) { 
+        if (!hasSave()) {
             Toast.makeText(this, "还没有存档", Toast.LENGTH_SHORT).show()
-            return 
+            return
         }
         val charId = prefs.getInt("charId", 0)
         engine.currentChar = engine.characters.find { it.id == charId } ?: engine.characters[0]
@@ -193,8 +189,8 @@ class MainActivity : Activity() {
         val title = tv("后室卡牌之旅", 34f, C_ACCENT, true)
         title.gravity = Gravity.CENTER
         ll.addView(title, lpFull())
-        
         ll.addView(spacer(20))
+
         ll.addView(menuButton("开始游戏") { showCharacterSelect() })
         ll.addView(menuButton("继续游戏") { continueGame() })
         ll.addView(menuButton("设置") { showSettings() })
@@ -210,18 +206,18 @@ class MainActivity : Activity() {
         sv.addView(ll, lpFull())
         root.addView(sv, lpFull())
         ll.addView(tv("选择角色", 24f, C_ACCENT, true))
-        
+
         val maxUnlock = prefs.getInt("max_level", 0)
         val infScore = prefs.getInt("best_inf_score", 0)
-        
+
         for (c in engine.characters) {
             val unlocked = when {
                 c.unlockAt == -1 -> true
                 c.unlockAt == -2 -> infScore >= 3
                 else -> maxUnlock >= c.unlockAt
             }
-            val txt = c.name + " (" + (if(unlocked) c.desc else "需通关第${c.unlockAt}关") + ")"
-            val btn = actionBtn(txt, if(unlocked) C_PANEL2 else C_BG, C_TEXT) {
+            val txt = c.name + " (" + (if (unlocked) c.desc else "需通关第${c.unlockAt}关") + ")"
+            val btn = actionBtn(txt, if (unlocked) C_PANEL2 else C_BG, C_TEXT) {
                 if (unlocked) {
                     engine.newGame(c)
                     saveGame()
@@ -241,19 +237,19 @@ class MainActivity : Activity() {
     }
 
     private fun update() {
-        if (engine.gameOver) { 
+        if (engine.gameOver) {
             saveGame()
             showGameOver()
-            return 
+            return
         }
-        if (engine.activeEvent != null) { 
+        if (engine.activeEvent != null) {
             showEventDialog()
-            return 
+            return
         }
-        if (engine.cleared) { 
+        if (engine.cleared) {
             saveGame()
             onStageCleared()
-            return 
+            return
         }
         saveGame()
         showGame()
@@ -265,9 +261,9 @@ class MainActivity : Activity() {
         b.setTitle(evt.title)
         b.setMessage(evt.desc)
         b.setCancelable(false)
-        b.setPositiveButton("确认") { _, _ -> 
+        b.setPositiveButton("确认") { _, _ ->
             engine.resolveEvent()
-            update() 
+            update()
         }
         b.show()
     }
@@ -275,14 +271,13 @@ class MainActivity : Activity() {
     private fun showGame() {
         root.removeAllViews()
         val s = engine.stage
-        
         val bg = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(s.bgStart, s.bgEnd))
         root.background = bg
-        
+
         val main = LinearLayout(this)
         main.orientation = LinearLayout.VERTICAL
         main.setPadding(dp(10), dp(10), dp(10), dp(10))
-        
+
         val status = LinearLayout(this)
         status.orientation = LinearLayout.HORIZONTAL
         main.addView(status, lpFull())
@@ -303,15 +298,16 @@ class MainActivity : Activity() {
         leftBox.background = rounded(C_PANEL, dp(12).toFloat())
         leftBox.setPadding(dp(10), dp(10), dp(10), dp(10))
         midLayout.addView(leftBox, lpWeight(1f, dp(4)))
-        
+
         leftBox.addView(tv(s.name, 16f, C_ACCENT, true), lpFull())
         leftBox.addView(tv("目标: " + s.goal.label + "  " + goalText(), 12f, C_TEXT, true), lpFull())
-        
+
         val monScroll = ScrollView(this)
         leftBox.addView(monScroll, lpWeight(1f, 0))
         val monBox = LinearLayout(this)
         monBox.orientation = LinearLayout.VERTICAL
         monScroll.addView(monBox, lpFull())
+
         if (engine.monsters.isEmpty()) {
             monBox.addView(tv("周围暂时安全……", 12f, C_DIM), lpFull())
         } else {
@@ -331,19 +327,19 @@ class MainActivity : Activity() {
         val rightBox = LinearLayout(this)
         rightBox.orientation = LinearLayout.VERTICAL
         midLayout.addView(rightBox, lpWeight(2f, dp(4)))
-        
+
         val handScroll = HorizontalScrollView(this)
         handScroll.isHorizontalScrollBarEnabled = false
         rightBox.addView(handScroll, lpWeight(1f, 0))
         val handRow = LinearLayout(this)
         handRow.orientation = LinearLayout.HORIZONTAL
         handScroll.addView(handRow, lpFull())
-        
+
         for (i in engine.hand.indices) {
             val card = engine.hand[i]
-            handRow.addView(makeCardView(card) { 
+            handRow.addView(makeCardView(card) {
                 engine.playCard(i)
-                update() 
+                update()
             })
         }
 
@@ -352,17 +348,17 @@ class MainActivity : Activity() {
         val r1lp = lpFull()
         r1lp.topMargin = dp(8)
         main.addView(row1, r1lp)
-        
-        row1.addView(actionBtn("结束回合", C_ACCENT) { 
+
+        row1.addView(actionBtn("结束回合", C_ACCENT) {
             engine.endTurn()
-            update() 
+            update()
         }, lpWeight(1f, dp(4)))
-        row1.addView(actionBtn("买卡 (2金币)", C_BLUE) { buyCardDialog() }, lpWeight(1f, dp(4)))
+        row1.addView(actionBtn("买卡", C_BLUE) { buyCardDialog() }, lpWeight(1f, dp(4)))
         row1.addView(actionBtn("商人", C_PURPLE) { openShop() }, lpWeight(1f, dp(4)))
-        row1.addView(actionBtn("道具 (" + engine.inventory.size + ")", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(4)))
-        row1.addView(actionBtn("菜单", C_PANEL2, C_TEXT) { 
+        row1.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(4)))
+        row1.addView(actionBtn("菜单", C_PANEL2, C_TEXT) {
             saveGame()
-            showMainMenu() 
+            showMainMenu()
         }, lpWeight(1f, dp(4)))
 
         root.addView(main, lpFull())
@@ -383,9 +379,9 @@ class MainActivity : Activity() {
         box.background = roundedStroke(C_PANEL2, dp(8).toFloat(), dp(2), card.category.color)
         box.setPadding(dp(6), dp(6), dp(6), dp(6))
         box.isClickable = true
-        box.setOnClickListener { 
+        box.setOnClickListener {
             playClick()
-            onClick() 
+            onClick()
         }
         val p = LinearLayout.LayoutParams(dp(100), dp(140))
         p.setMargins(dp(3), 0, dp(3), 0)
@@ -401,9 +397,9 @@ class MainActivity : Activity() {
     }
 
     private fun buyCardDialog() {
-        if (engine.boughtThisTurn || engine.coins < 2) { 
+        if (engine.boughtThisTurn || engine.coins < 2) {
             Toast.makeText(this, "无法购买", Toast.LENGTH_SHORT).show()
-            return 
+            return
         }
         val picks = CardLibrary.random(3)
         val labels = Array<CharSequence>(picks.size) { i -> picks[i].name + "\n" + picks[i].desc }
@@ -420,9 +416,9 @@ class MainActivity : Activity() {
         val labels = Array<CharSequence>(picks.size) { i -> picks[i].name + " (" + picks[i].price + "金)\n" + picks[i].desc }
         AlertDialog.Builder(this).setTitle("流浪商人 (你有 " + engine.coins + " 金币)").setItems(labels) { _, which ->
             val item = picks[which]
-            if (engine.coins >= item.price) { 
+            if (engine.coins >= item.price) {
                 engine.coins -= item.price
-                engine.inventory.add(item) 
+                engine.inventory.add(item)
             } else {
                 Toast.makeText(this, "金币不足", Toast.LENGTH_SHORT).show()
             }
@@ -431,14 +427,14 @@ class MainActivity : Activity() {
     }
 
     private fun openInventory() {
-        if (engine.inventory.isEmpty()) { 
+        if (engine.inventory.isEmpty()) {
             Toast.makeText(this, "背包为空", Toast.LENGTH_SHORT).show()
-            return 
+            return
         }
         val labels = Array<CharSequence>(engine.inventory.size) { i -> engine.inventory[i].name + "\n" + engine.inventory[i].desc }
-        AlertDialog.Builder(this).setTitle("背包").setItems(labels) { _, which -> 
+        AlertDialog.Builder(this).setTitle("背包").setItems(labels) { _, which ->
             engine.useItem(which)
-            update() 
+            update()
         }.setNegativeButton("关闭", null).show()
     }
 
@@ -452,9 +448,9 @@ class MainActivity : Activity() {
 
         val force = engine.completed % 3 == 0
         val roll = Math.random()
-        if (force || roll < 0.12) { 
+        if (force || roll < 0.12) {
             engine.isSpecial = true
-            engine.specialStageName = engine.getSpecialStageName()
+            engine.specialStageName = engine.generateSpecialStageName()
             showSpecialDialog()
         } else {
             showClearedDialog()
@@ -472,11 +468,11 @@ class MainActivity : Activity() {
 
     private fun showAllClearedDialog() {
         AlertDialog.Builder(this).setTitle("恭喜！").setMessage("你通过了全部 30 个关卡！\n进入无限模式冲刺高分吧！").setCancelable(false)
-            .setPositiveButton("进入无限") { _, _ -> 
+            .setPositiveButton("进入无限") { _, _ ->
                 engine.infiniteMode = true
                 engine.score = 0
                 engine.startStage(0)
-                update() 
+                update()
             }
             .setNegativeButton("主菜单") { _, _ -> showMainMenu() }.show()
     }
@@ -485,7 +481,7 @@ class MainActivity : Activity() {
         val r = Math.random()
         val type = if (r < 0.7) "good" else if (r < 0.8) "bad" else "neutral"
         val b = AlertDialog.Builder(this).setTitle(engine.specialStageName).setCancelable(false)
-        
+
         when (type) {
             "good" -> {
                 b.setMessage("这里是安全的避风港。\n生命与理智完全恢复，获得道具。")
@@ -510,17 +506,17 @@ class MainActivity : Activity() {
             }
             else -> {
                 b.setMessage("前方有两条路：\n左路(金币+20)，右路(进度+50)")
-                b.setPositiveButton("左路") { _, _ -> 
+                b.setPositiveButton("左路") { _, _ ->
                     engine.coins += 20
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else update() 
+                    if (engine.finishedAll) showAllClearedDialog() else update()
                 }
-                b.setNegativeButton("右路") { _, _ -> 
+                b.setNegativeButton("右路") { _, _ ->
                     engine.progress += 50
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else update() 
+                    if (engine.finishedAll) showAllClearedDialog() else update()
                 }
             }
         }
@@ -532,13 +528,13 @@ class MainActivity : Activity() {
         overDialogShown = true
         val sb = "到达关卡：" + engine.stage.name + "\n通关数量：" + engine.completed
         AlertDialog.Builder(this).setTitle("你倒下了").setMessage(sb).setCancelable(false)
-            .setPositiveButton("重新开始") { _, _ -> 
+            .setPositiveButton("重新开始") { _, _ ->
                 overDialogShown = false
-                showCharacterSelect() 
+                showCharacterSelect()
             }
-            .setNegativeButton("主菜单") { _, _ -> 
+            .setNegativeButton("主菜单") { _, _ ->
                 overDialogShown = false
-                showMainMenu() 
+                showMainMenu()
             }.show()
     }
 
@@ -552,40 +548,40 @@ class MainActivity : Activity() {
         root.addView(sv, lpFull())
         ll.addView(tv("设置", 28f, C_ACCENT, true))
         ll.addView(spacer(24))
-        
+
         val label1 = tv("音效音量：" + soundVol + "%", 14f, C_TEXT, true)
         ll.addView(label1)
         val sb1 = SeekBar(this)
         sb1.max = 100
         sb1.progress = soundVol
         sb1.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) { 
+            override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) {
                 label1.text = "音效音量：" + p + "%"
                 soundVol = p
-                saveSettings() 
+                saveSettings()
             }
-            override fun onStartTrackingTouch(s: SeekBar?) {} 
+            override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         ll.addView(sb1)
-        
+
         val label2 = tv("屏幕亮度：" + bright + "%", 14f, C_TEXT, true)
         ll.addView(label2)
         val sb2 = SeekBar(this)
         sb2.max = 100
         sb2.progress = bright
         sb2.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) { 
+            override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) {
                 label2.text = "屏幕亮度：" + p + "%"
                 bright = p
                 applyBrightness()
-                saveSettings() 
+                saveSettings()
             }
-            override fun onStartTrackingTouch(s: SeekBar?) {} 
+            override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         ll.addView(sb2)
-        
+
         ll.addView(spacer(30))
         ll.addView(actionBtn("返回主菜单") { showMainMenu() })
     }
@@ -600,7 +596,7 @@ class MainActivity : Activity() {
         root.addView(sv, lpFull())
         ll.addView(tv("关于详情 v2.0", 28f, C_ACCENT, true))
         ll.addView(spacer(16))
-        ll.addView(tv("已更新：\n1. 特殊关卡增加至 100+ 种，概率提升\n2. 怪物加入了吸血、反伤、狂暴等技能\n3. 新增 12 个可解锁角色\n4. 新增 200 个随机探索事件\n5. 每关拥有独有的背景渐变色\n6. 改为横屏模式", 14f, C_TEXT))
+        ll.addView(tv("已更新：\n1. 特殊关卡增加至 100+ 种\n2. 怪物加入了技能\n3. 新增 12 个角色\n4. 新增 200 个事件\n5. 改为横屏", 14f, C_TEXT))
         ll.addView(spacer(30))
         ll.addView(actionBtn("返回主菜单") { showMainMenu() })
     }
