@@ -131,4 +131,7 @@ object CardLibrary {
     fun random(n: Int): List<Card> = all.shuffled().take(n)
 
     fun randomOne(): Card = all[(Math.random() * all.size).toInt().coerceIn(0, all.size - 1)]
+
+    // id 与下标一一对应，存档只需要保存 id
+    fun byId(id: Int): Card? = all.getOrNull(id)
 }

@@ -102,4 +102,6 @@ object ItemLibrary {
     }
 
     fun random(n: Int): List<Item> = all.shuffled().take(n)
+
+    fun byId(id: Int): Item? = all.getOrNull(id)
 }
