@@ -6,6 +6,9 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -18,13 +21,18 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import kotlin.math.max
+import kotlin.math.sin
 
 class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private val engine = GameEngine()
+    private var musicVol = 70
     private var soundVol = 80
     private var bright = 100
     private var overDialogShown = false
+
+    private var audioTrack: AudioTrack? = null
+    private var audioThread: Thread? = null
 
     private val C_BG = 0xFF0D0D0D.toInt()
     private val C_PANEL = 0xFF1B1B1B.toInt()
@@ -44,9 +52,68 @@ class MainActivity : Activity() {
         setContentView(root)
         loadSettings()
         applyBrightness()
+        startBgm()
         showMainMenu()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        stopBgm()
+    }
+
+    // ====== 纯代码生成后室底噪（荧光灯嗡嗡声） ======
+    private fun startBgm() {
+        if (musicVol <= 0 || audioTrack != null) return
+        audioThread = Thread {
+            val sampleRate = 44100
+            val bufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            try {
+                audioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build())
+                    .setAudioFormat(AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build())
+                    .setBufferSizeInBytes(bufferSize * 2)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                audioTrack?.play()
+                val buffer = ShortArray(bufferSize)
+                var phase = 0.0
+                while (!Thread.currentThread().isInterrupted && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    for (i in buffer.indices) {
+                        val t = phase / sampleRate.toDouble()
+                        // 50Hz 低频轰鸣 + 120Hz 荧光灯电流声 + 微弱白噪音
+                        val sine = sin(2.0 * Math.PI * 50.0 * t) * 0.1 + sin(2.0 * Math.PI * 120.0 * t) * 0.05
+                        val noise = (Math.random() * 2 - 1) * 0.015
+                        buffer[i] = ((sine + noise) * Short.MAX_VALUE * (musicVol / 100.0)).toInt().toShort()
+                        phase += 1.0
+                    }
+                    audioTrack?.write(buffer, 0, buffer.size)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        audioThread?.start()
+    }
+
+    private fun stopBgm() {
+        audioThread?.interrupt()
+        audioThread = null
+        try {
+            audioTrack?.stop()
+            audioTrack?.release()
+        } catch (e: Exception) {}
+        audioTrack = null
+    }
+
+    // ====== 基础 UI 工具 ======
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun rounded(color: Int, radius: Float): GradientDrawable {
@@ -94,9 +161,9 @@ class MainActivity : Activity() {
         v.background = rounded(bg, dp(10).toFloat())
         v.setPadding(dp(12), dp(12), dp(12), dp(12))
         v.isClickable = true
-        v.setOnClickListener { 
+        v.setOnClickListener {
             playClick()
-            onClick() 
+            onClick()
         }
         return v
     }
@@ -130,12 +197,13 @@ class MainActivity : Activity() {
     }
 
     private fun loadSettings() {
+        musicVol = prefs.getInt("music", 70)
         soundVol = prefs.getInt("sound", 80)
         bright = prefs.getInt("bright", 100)
     }
 
     private fun saveSettings() {
-        prefs.edit().putInt("sound", soundVol).putInt("bright", bright).apply()
+        prefs.edit().putInt("music", musicVol).putInt("sound", soundVol).putInt("bright", bright).apply()
     }
 
     private fun applyBrightness() {
@@ -257,11 +325,29 @@ class MainActivity : Activity() {
 
     private fun showEventDialog() {
         val evt = engine.activeEvent ?: return
+        
+        // 构建明确的好处/坏处提示
+        val effectMsg = StringBuilder()
+        effectMsg.append(evt.desc).append("\n\n【结算结果】\n")
+        if (evt.hpChange != 0) {
+            effectMsg.append("生命 ").append(if (evt.hpChange > 0) "+" else "").append(evt.hpChange).append("\n")
+        }
+        if (evt.coinChange != 0) {
+            effectMsg.append("金币 ").append(if (evt.coinChange > 0) "+" else "").append(evt.coinChange).append("\n")
+        }
+        if (evt.progChange != 0) {
+            effectMsg.append("进度 ").append(if (evt.progChange > 0) "+" else "").append(evt.progChange).append("\n")
+        }
+        if (evt.hpChange == 0 && evt.coinChange == 0 && evt.progChange == 0) {
+            effectMsg.append("无事发生……\n")
+        }
+
         val b = AlertDialog.Builder(this)
         b.setTitle(evt.title)
-        b.setMessage(evt.desc)
+        b.setMessage(effectMsg.toString())
         b.setCancelable(false)
-        b.setPositiveButton("确认") { _, _ ->
+        b.setPositiveButton("确认") { dialog, _ ->
+            dialog.dismiss() // 确保先关闭弹窗
             engine.resolveEvent()
             update()
         }
@@ -485,7 +571,8 @@ class MainActivity : Activity() {
         when (type) {
             "good" -> {
                 b.setMessage("这里是安全的避风港。\n生命与理智完全恢复，获得道具。")
-                b.setPositiveButton("好耶") { _, _ ->
+                b.setPositiveButton("好耶") { dialog, _ ->
+                    dialog.dismiss()
                     engine.hp = engine.maxHp
                     engine.sanity = 100
                     engine.inventory.add(ItemLibrary.random(1)[0])
@@ -496,7 +583,8 @@ class MainActivity : Activity() {
             }
             "bad" -> {
                 b.setMessage("你掉进了陷阱！\n失去 40 点生命。")
-                b.setPositiveButton("该死") { _, _ ->
+                b.setPositiveButton("该死") { dialog, _ ->
+                    dialog.dismiss()
                     engine.hp -= 40
                     engine.checkState()
                     engine.isSpecial = false
@@ -506,13 +594,15 @@ class MainActivity : Activity() {
             }
             else -> {
                 b.setMessage("前方有两条路：\n左路(金币+20)，右路(进度+50)")
-                b.setPositiveButton("左路") { _, _ ->
+                b.setPositiveButton("左路") { dialog, _ ->
+                    dialog.dismiss()
                     engine.coins += 20
                     engine.isSpecial = false
                     engine.advance()
                     if (engine.finishedAll) showAllClearedDialog() else update()
                 }
-                b.setNegativeButton("右路") { _, _ ->
+                b.setNegativeButton("右路") { dialog, _ ->
+                    dialog.dismiss()
                     engine.progress += 50
                     engine.isSpecial = false
                     engine.advance()
@@ -549,30 +639,50 @@ class MainActivity : Activity() {
         ll.addView(tv("设置", 28f, C_ACCENT, true))
         ll.addView(spacer(24))
 
-        val label1 = tv("音效音量：" + soundVol + "%", 14f, C_TEXT, true)
-        ll.addView(label1)
-        val sb1 = SeekBar(this)
-        sb1.max = 100
-        sb1.progress = soundVol
-        sb1.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        // 音乐
+        val labelM = tv("背景音乐：" + musicVol + "%", 14f, C_TEXT, true)
+        ll.addView(labelM)
+        val sbM = SeekBar(this)
+        sbM.max = 100
+        sbM.progress = musicVol
+        sbM.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) {
-                label1.text = "音效音量：" + p + "%"
+                labelM.text = "背景音乐：" + p + "%"
+                musicVol = p
+                saveSettings()
+                if (musicVol == 0) stopBgm() else if (audioTrack == null) startBgm()
+            }
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+        ll.addView(sbM)
+
+        // 音效
+        val labelS = tv("音效音量：" + soundVol + "%", 14f, C_TEXT, true)
+        val pS = lpFull(); pS.topMargin = dp(16); ll.addView(labelS, pS)
+        val sbS = SeekBar(this)
+        sbS.max = 100
+        sbS.progress = soundVol
+        sbS.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) {
+                labelS.text = "音效音量：" + p + "%"
                 soundVol = p
                 saveSettings()
             }
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
-        ll.addView(sb1)
+        ll.addView(sbS)
 
-        val label2 = tv("屏幕亮度：" + bright + "%", 14f, C_TEXT, true)
-        ll.addView(label2)
-        val sb2 = SeekBar(this)
-        sb2.max = 100
-        sb2.progress = bright
-        sb2.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        // 亮度
+        val labelB = tv("屏幕亮度：" + bright + "%", 14f, C_TEXT, true)
+        val pB = lpFull(); pB.topMargin = dp(16); ll.addView(labelB, pB)
+        val sbB = SeekBar(this)
+        sbB.max = 100
+        sbB.progress = bright
+        sbB.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) {
-                label2.text = "屏幕亮度：" + p + "%"
+                labelB.text = "屏幕亮度：" + p + "%"
                 bright = p
                 applyBrightness()
                 saveSettings()
@@ -580,7 +690,7 @@ class MainActivity : Activity() {
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
-        ll.addView(sb2)
+        ll.addView(sbB)
 
         ll.addView(spacer(30))
         ll.addView(actionBtn("返回主菜单") { showMainMenu() })
@@ -594,9 +704,9 @@ class MainActivity : Activity() {
         ll.setPadding(dp(24), dp(24), dp(24), dp(24))
         sv.addView(ll, lpFull())
         root.addView(sv, lpFull())
-        ll.addView(tv("关于详情 v2.0", 28f, C_ACCENT, true))
+        ll.addView(tv("关于详情 v2.1", 28f, C_ACCENT, true))
         ll.addView(spacer(16))
-        ll.addView(tv("已更新：\n1. 特殊关卡增加至 100+ 种\n2. 怪物加入了技能\n3. 新增 12 个角色\n4. 新增 200 个事件\n5. 改为横屏", 14f, C_TEXT))
+        ll.addView(tv("已更新：\n1. 修复事件界面消失与无提示的Bug\n2. 加入纯代码生成的后室底噪背景音乐（可在设置里调节）\n3. 新增 12 个角色和特殊关卡系统", 14f, C_TEXT))
         ll.addView(spacer(30))
         ll.addView(actionBtn("返回主菜单") { showMainMenu() })
     }
