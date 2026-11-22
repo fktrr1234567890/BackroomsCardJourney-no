@@ -9,7 +9,9 @@ data class Stage(
     val index: Int, val name: String, val subtitle: String,
     val goal: GoalType, val goalValue: Int, val spawnEvery: Int,
     val monsterHp: Int, val monsterAtk: Int, val reward: Int,
-    val bgStart: Int, val bgEnd: Int
+    val bgStart: Int, val bgEnd: Int,
+    // 清剿类关卡一次刷出的怪物数量，与 goalValue(进度) 解耦，默认沿用旧行为
+    val monsterCount: Int = goalValue
 )
 
 object StageLibrary {
@@ -50,9 +52,17 @@ object StageLibrary {
         val r = round + 1
         val types = listOf(GoalType.KILL_ALL, GoalType.SEARCH, GoalType.SURVIVE, GoalType.ESCAPE, GoalType.PUZZLE)
         val g = types[(r - 1) % types.size]
+        // 不同目标类型的数值含义不同，不能共用一个 60+r*20
+        val count = minOf(6, 1 + r / 2)
+        val goalValue = when (g) {
+            GoalType.SURVIVE -> 8 + r * 2
+            GoalType.KILL_ALL -> count
+            else -> 60 + r * 20
+        }
         return Stage(
-            1000 + r, "无限回廊 · 第 $r 轮", "没有尽头的后室", g, 60 + r * 20, 3, 40 + r * 10, 8 + r * 2, 20 + r * 5,
-            0xFF1B1B1B.toInt(), 0xFF4A148C.toInt()
+            1000 + r, "无限回廊 · 第 $r 轮", "没有尽头的后室", g, goalValue, 3,
+            40 + r * 10, 8 + r * 2, 20 + r * 5,
+            0xFF1B1B1B.toInt(), 0xFF4A148C.toInt(), count
         )
     }
 }
