@@ -447,14 +447,6 @@ class MainActivity : Activity() {
             btn.layoutParams = p
             ll.addView(btn)
         }
-        ll.addView(spacer(16))
-        if (adminActive) {
-            val adminBtn = actionBtn("管理员面板", C_RED, Color.WHITE) { showAdminPanel() }
-            val p = lpFull()
-            p.topMargin = dp(8)
-            adminBtn.layoutParams = p
-            ll.addView(adminBtn)
-        }
         ll.addView(spacer(20))
         ll.addView(actionBtn("返回", C_PANEL2, C_TEXT) { showMainMenu() })
     }
@@ -527,10 +519,10 @@ class MainActivity : Activity() {
             engine.adminCoins(100)
             update()
         }
-        addBtn("关闭管理员面板", C_RED, Color.WHITE) {
+        addBtn("退出管理员", C_RED, Color.WHITE) {
             adminActive = false
             Toast.makeText(this, "管理员已退出", Toast.LENGTH_SHORT).show()
-            showCharacterSelect()
+            if (screen == "game") update() else showMainMenu()
         }
 
         panel = AlertDialog.Builder(this)
@@ -855,6 +847,10 @@ class MainActivity : Activity() {
         row2.addView(actionBtn("商人", C_PURPLE) { openShop() }, lpWeight(1f, dp(2)))
         row2.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(2)))
         row2.addView(actionBtn("菜单", C_PANEL2, C_TEXT) { saveGame(); showMainMenu() }, lpWeight(1f, dp(2)))
+        // 管理员入口内置在对局内，不占角色选择界面
+        if (adminActive) {
+            row2.addView(actionBtn("管理", C_RED, Color.WHITE) { showAdminPanel() }, lpWeight(1f, dp(2)))
+        }
 
         addScreen(main)
 
@@ -1198,8 +1194,7 @@ class MainActivity : Activity() {
                     "3. 卡牌按稀有度加权刷新，强力牌不再满地\n" +
                     "4. 修复取消买卡可免费刷牌的漏洞，新增刷牌按钮（花金币、本回合限次）\n" +
                     "5. 新增 NPC：幸存者 / 医生 / 士兵 / 商人 / 邪教徒 / 掠夺者，可交谈、可交易，孤立层级不刷新\n" +
-                    "6. 假随机：手牌越多怪越强越勤，手牌少时整关可能不出怪\n" +
-                    "7. 管理员面板（版本号连点 + 密码）",
+                    "6. 假随机：手牌越多怪越强越勤，手牌少时整关可能不出怪",
                 13f, C_TEXT
             )
         )
