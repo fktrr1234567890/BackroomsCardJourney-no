@@ -1,0 +1,39 @@
+name: Bootstrap Import
+
+on:
+  push:
+    paths:
+      - '.bootstrap/trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载源码包
+        run: curl -sSL -o src.zip "https://aka.doubaocdn.com/s/OdZvcpSMRi"
+
+      - name: 解压
+        run: |
+          mkdir -p _src
+          unzip -q src.zip -d _src
+          ls _src | head -20
+
+      - name: 同步到仓库
+        run: |
+          rsync -a _src/ ./
+          rm -rf _src src.zip
+          rm -f .bootstrap/trigger
+
+      - name: 提交并推送
+        run: |
+          git config user.name "fktrr1234567890"
+          git config user.email "3660013375@qq.com"
+          git add -A
+          git commit -m "同步 v0.0.7 源码（一次性导入）" || echo "nothing to commit"
+          git push
