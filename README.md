@@ -2,7 +2,9 @@
 
 一款单机 Android 卡牌 Roguelike 原型：在后室（Backrooms）里用卡牌推进进度、对抗实体、管理理智，共 30 个关卡 + 无限模式 + 特殊关卡。
 
-当前版本：**0.0.5（测试版，不推荐直接分发）**
+当前版本：**0.0.7（测试版，不推荐直接分发）**
+
+> 本仓库与 PC 版 [`BackroomsCardJourney-PC`](https://github.com/fktrr1234567890/BackroomsCardJourney-PC) 同步维护：每次改动两端一起更、各自发同名版本号 Release。
 
 ## 玩法
 
@@ -69,6 +71,18 @@ app/src/main/java/com/backrooms/cardjourney/
 ├── BackroomsBackground.kt    手绘透视走廊背景 View
 └── MainActivity.kt           全部界面（手写 View）
 ```
+
+## 更新日志
+
+### 0.0.7
+- 修复无限模式循环：打完无限第 1 轮后又弹「全部 30 关通关」、分数归零回到第 1 轮，无限套娃。
+  - 根因：`finishedAll` 在通关第 30 关时置位，进入无限模式时没清掉，`advance()` 之后 UI 又读到该标记。
+  - `startStage()` / `advance()` 开头清标记；新增 `GameEngine.enterInfiniteMode()` 统一复位；UI 弹窗条件加 `!infiniteMode`。
+- 新增 3 条回归测试（共 28 条）。
+- 版本号 0.0.5 → 0.0.7，与 PC 版对齐。
+
+### 0.0.5
+- 首版可玩原型：30 关 + 无限模式 + 特殊关卡、卡牌概率加权、NPC 系统、动态难度、内置管理员面板。
 
 ## 已知问题
 

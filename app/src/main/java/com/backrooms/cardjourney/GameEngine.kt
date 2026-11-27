@@ -148,6 +148,8 @@ class GameEngine {
 
     fun startStage(idx: Int) {
         levelIndex = idx
+        // 只要进了新关，就说明这一局还在继续，通关标记必须清掉
+        finishedAll = false
         val s = stage
         val base = if (infiniteMode) 30 + score else idx
         val charHp = currentChar?.maxHpBonus ?: 0
@@ -415,6 +417,7 @@ class GameEngine {
     /** 通关后推进：先掷 NPC，命中则停在 NPC 前，UI 交互后再进关 */
     fun advance() {
         cleared = false
+        finishedAll = false
         if (infiniteMode) {
             score++
             pendingStageIndex = levelIndex
@@ -428,6 +431,18 @@ class GameEngine {
         val next = levelIndex + 1
         pendingStageIndex = next
         if (!rollNpc(StageLibrary.stages[next])) startStage(next)
+    }
+
+    /** 30 层通关后进入无限模式：轮次归零、清掉通关标记，避免重复弹“全部通关” */
+    fun enterInfiniteMode() {
+        infiniteMode = true
+        score = 0
+        finishedAll = false
+        cleared = false
+        gameOver = false
+        pendingNpc = null
+        activeEvent = null
+        startStage(0)
     }
 
     private fun rollNpc(nextStage: Stage): Boolean {

@@ -1,6 +1,7 @@
 package com.backrooms.cardjourney
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -288,5 +289,50 @@ class GameEngineTest {
         e.adminEndStage()
         assertTrue(e.cleared)
         assertEquals(1, e.completed)
+    }
+
+    @Test
+    fun `进入无限模式会清掉全部通关标记`() {
+        val e = newEngine()
+        e.adminJumpTo(29)
+        e.adminEndStage()
+        e.advance()
+        assertTrue(e.finishedAll)
+
+        e.enterInfiniteMode()
+        assertFalse(e.finishedAll)
+        assertEquals(0, e.score)
+        assertTrue(e.infiniteMode)
+        assertTrue(e.stage.name.contains("第 1 轮"))
+    }
+
+    @Test
+    fun `无限模式通关后轮次递增而不会回到第一轮`() {
+        val e = newEngine()
+        e.enterInfiniteMode()
+
+        repeat(5) {
+            e.adminEndStage()
+            e.advance()
+            if (e.pendingNpc != null) e.resolveNpc()
+            assertFalse("无限模式不应再出现全部通关标记", e.finishedAll)
+        }
+
+        assertEquals(5, e.score)
+        assertTrue(e.stage.name.contains("第 6 轮"))
+        assertFalse(e.finishedAll)
+    }
+
+    @Test
+    fun `从存档恢复后不会残留全部通关标记`() {
+        val e = newEngine()
+        e.adminJumpTo(29)
+        e.adminEndStage()
+        e.advance()
+        assertTrue(e.finishedAll)
+
+        // 模拟用户在弹窗前退出、下次继续游戏
+        e.startStage(29)
+        assertFalse(e.finishedAll)
     }
 }

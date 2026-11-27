@@ -24,7 +24,7 @@ import android.widget.TextView
 import android.widget.Toast
 import kotlin.math.max
 
-private const val APP_VERSION = "0.0.5"
+private const val APP_VERSION = "0.0.7"
 private const val ADMIN_PASSWORD = "15807050240"
 private const val ADMIN_TAP_COUNT = 7
 
@@ -1001,7 +1001,7 @@ class MainActivity : Activity() {
             .setCancelable(false)
             .setPositiveButton("继续") { _, _ ->
                 engine.advance()
-                if (engine.finishedAll) showAllClearedDialog() else update()
+                if (engine.finishedAll && !engine.infiniteMode) showAllClearedDialog() else update()
             }
             .show()
     }
@@ -1012,9 +1012,7 @@ class MainActivity : Activity() {
             .setMessage("你通过了全部 30 个关卡！\n进入无限模式冲刺高分吧！")
             .setCancelable(false)
             .setPositiveButton("进入无限") { _, _ ->
-                engine.infiniteMode = true
-                engine.score = 0
-                engine.startStage(0)
+                engine.enterInfiniteMode()
                 update()
             }
             .setNegativeButton("主菜单") { _, _ -> showMainMenu() }
@@ -1036,7 +1034,7 @@ class MainActivity : Activity() {
                     engine.inventory.add(ItemLibrary.random(1)[0])
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
+                    if (engine.finishedAll && !engine.infiniteMode) showAllClearedDialog() else root.post { update() }
                 }
             }
             "bad" -> {
@@ -1047,7 +1045,7 @@ class MainActivity : Activity() {
                     engine.checkState()
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
+                    if (engine.finishedAll && !engine.infiniteMode) showAllClearedDialog() else root.post { update() }
                 }
             }
             else -> {
@@ -1057,14 +1055,14 @@ class MainActivity : Activity() {
                     engine.coins += 20
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
+                    if (engine.finishedAll && !engine.infiniteMode) showAllClearedDialog() else root.post { update() }
                 }
                 b.setNegativeButton("右路") { dialog, _ ->
                     dialog.dismiss()
                     engine.progress += 50
                     engine.isSpecial = false
                     engine.advance()
-                    if (engine.finishedAll) showAllClearedDialog() else root.post { update() }
+                    if (engine.finishedAll && !engine.infiniteMode) showAllClearedDialog() else root.post { update() }
                 }
             }
         }
