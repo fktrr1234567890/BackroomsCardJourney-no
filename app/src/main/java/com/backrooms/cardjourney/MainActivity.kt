@@ -24,7 +24,11 @@ import android.widget.TextView
 import android.widget.Toast
 import kotlin.math.max
 
-private const val APP_VERSION = "0.0.7"
+/**
+ * 显示用版本号：启动时从 APK 的 versionName 读取，
+ * 避免再出现 build.gradle 已升到 0.0.9、界面还写着 0.0.7 的情况。
+ */
+private var APP_VERSION = "0.0.9"
 private const val ADMIN_PASSWORD = "15807050240"
 private const val ADMIN_TAP_COUNT = 7
 
@@ -82,6 +86,11 @@ class MainActivity : Activity() {
         content = FrameLayout(this)
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
+        APP_VERSION = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: APP_VERSION
+        } catch (e: Exception) {
+            APP_VERSION
+        }
         loadSettings()
         applyBrightness()
         showMainMenu()
