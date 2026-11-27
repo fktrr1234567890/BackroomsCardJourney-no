@@ -36,6 +36,9 @@ class GameEngine {
         const val REROLL_MAX_PER_TURN = 4
         // 每次进入新关卡前遇到 NPC 的概率
         const val NPC_CHANCE = 0.45
+        // 回合结束时商人出现的概率，以及最多能穿几件装备
+        const val MERCHANT_CHANCE = 0.55
+        const val MAX_EQUIP = 4
     }
 
     var levelIndex = 0
@@ -52,6 +55,11 @@ class GameEngine {
     var hand = mutableListOf<Card>()
     var inventory = mutableListOf<Item>()
     var boughtThisTurn = false
+    /** 已装备的武器/护甲/随身装备，最多 MAX_EQUIP 件 */
+    var equipment = mutableListOf<Equipment>()
+    /** 回合结束时商人是否出现 */
+    var pendingMerchant = false
+    var merchantStock = mutableListOf<Equipment>()
     var infiniteMode = false
     var score = 0
     var completed = 0
@@ -139,6 +147,7 @@ class GameEngine {
         cleared = false
         npcMeetings = 0
         inventory.clear()
+        resetEquipment()
         if (char.startItem) {
             inventory.add(ItemLibrary.random(1)[0])
         }
@@ -276,13 +285,13 @@ class GameEngine {
             }
             CardCategory.COMBAT -> {
                 if (monsters.isNotEmpty()) {
-                    hitMonster(target.coerceIn(0, monsters.size - 1), c.v1)
+                    hitMonster(target.coerceIn(0, monsters.size - 1), c.v1 + equipAtk())
                 } else {
                     progress += c.v2
                 }
             }
             CardCategory.DEFENSE -> {
-                shield += c.v1
+                shield += c.v1 + equipArmor()
                 hp = min(maxHp, hp + c.v2)
             }
             CardCategory.MOVEMENT -> {
@@ -321,6 +330,12 @@ class GameEngine {
             message = "击倒了 " + m.name + "！"
         }
         if (monsters.isEmpty()) target = 0 else target = target.coerceIn(0, monsters.size - 1)
+    }
+
+    private fun resetEquipment() {
+        equipment.clear()
+        pendingMerchant = false
+        merchantStock.clear()
     }
 
     fun endTurn() {
@@ -364,8 +379,38 @@ class GameEngine {
             trySpawn()
         }
         refillHand()
+        rollMerchant()
         checkState()
     }
+
+    /** 回合结束时按概率放出商人；同时清空上一轮的货 */
+    private fun rollMerchant() {
+        pendingMerchant = false
+        merchantStock.clear()
+        if (Math.random() < MERCHANT_CHANCE) {
+            merchantStock.addAll(EquipmentLibrary.random(3))
+            pendingMerchant = true
+        }
+    }
+
+    /** 买下第 index 件装备：0 成功 / 1 金币不足 / 2 装备位满 / 3 已卖出 */
+    fun buyEquipment(index: Int): Int {
+        val e = merchantStock.getOrNull(index) ?: return 3
+        if (coins < e.price) return 1
+        if (equipment.size >= MAX_EQUIP) return 2
+        coins -= e.price
+        equipment.add(e)
+        merchantStock.removeAt(index)
+        message = "装备了 " + e.name
+        if (merchantStock.isEmpty()) pendingMerchant = false
+        return 0
+    }
+
+    fun equipAtk(): Int = equipment.sumOf { it.atk }
+
+    fun equipArmor(): Int = equipment.sumOf { it.armor }
+
+    fun equipSlotsLeft(): Int = (MAX_EQUIP - equipment.size).coerceAtLeast(0)
 
     fun resolveEvent() {
         activeEvent?.let {

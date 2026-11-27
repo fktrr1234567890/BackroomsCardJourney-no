@@ -623,6 +623,10 @@ class MainActivity : Activity() {
             showNpcDialog()
             return
         }
+        if (engine.pendingMerchant && engine.merchantStock.isNotEmpty()) {
+            showMerchantDialog()
+            return
+        }
         if (engine.cleared) {
             saveGame()
             onStageCleared()
@@ -836,15 +840,14 @@ class MainActivity : Activity() {
         r1lp.topMargin = dp(6)
         main.addView(row1, r1lp)
         row1.addView(actionBtn("结束回合", C_ACCENT) { engine.endTurn(); update() }, lpWeight(1.6f, dp(2)))
-        row1.addView(actionBtn("买卡", C_BLUE) { buyCardDialog() }, lpWeight(1f, dp(2)))
-        row1.addView(actionBtn("刷牌 " + engine.offerRerollCost() + "金", C_PURPLE, Color.WHITE) { rerollWithUi() }, lpWeight(1.1f, dp(2)))
+        row1.addView(actionBtn("装备 " + engine.equipment.size + "/" + GameEngine.MAX_EQUIP, C_BLUE) { showEquipmentDialog() }, lpWeight(1.2f, dp(2)))
 
         val row2 = LinearLayout(this)
         row2.orientation = LinearLayout.HORIZONTAL
         val r2lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         r2lp.topMargin = dp(4)
         main.addView(row2, r2lp)
-        row2.addView(actionBtn("商人", C_PURPLE) { openShop() }, lpWeight(1f, dp(2)))
+
         row2.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(2)))
         row2.addView(actionBtn("菜单", C_PANEL2, C_TEXT) { saveGame(); showMainMenu() }, lpWeight(1f, dp(2)))
         // 管理员入口内置在对局内，不占角色选择界面
@@ -907,6 +910,57 @@ class MainActivity : Activity() {
             else -> Toast.makeText(this, "本回合最多刷 4 次", Toast.LENGTH_SHORT).show()
         }
         update()
+    }
+
+    /** 回合结束时随机出现的商人：买装备，装备直接加攻/甲 */
+    private fun showMerchantDialog() {
+        val stock = engine.merchantStock
+        if (stock.isEmpty()) {
+            engine.pendingMerchant = false
+            showGame()
+            return
+        }
+        val labels = Array<CharSequence>(stock.size) { i ->
+            val e = stock[i]
+            e.name + "  (" + e.price + "金 · " + e.slot.label + " · " + e.tier + ")\n" +
+                (if (e.atk > 0) "攻击 +" + e.atk + "  " else "") +
+                (if (e.armor > 0) "护甲 +" + e.armor + "  " else "") + e.desc
+        }
+        AlertDialog.Builder(this)
+            .setTitle("流浪商人（你有 " + engine.coins + " 金 · 装备 " + engine.equipment.size + "/" + GameEngine.MAX_EQUIP + "）")
+            .setItems(labels) { _, which ->
+                val msg = when (engine.buyEquipment(which)) {
+                    0 -> "买下并装备了 " + stock[which].name
+                    1 -> "金币不足"
+                    2 -> "装备位已满"
+                    else -> "这件已经卖掉了"
+                }
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                if (engine.merchantStock.isNotEmpty()) showMerchantDialog() else { engine.pendingMerchant = false; update() }
+            }
+            .setNegativeButton("离开") { _, _ -> engine.pendingMerchant = false; showGame() }
+            .setCancelable(false)
+            .show()
+    }
+
+    /** 查看已装备的东西 */
+    private fun showEquipmentDialog() {
+        if (engine.equipment.isEmpty()) {
+            Toast.makeText(this, "还没装备任何东西 · 回合结束时商人可能出现", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = Array<CharSequence>(engine.equipment.size) { i ->
+            val e = engine.equipment[i]
+            e.name + " (" + e.slot.label + ")\n" +
+                (if (e.atk > 0) "攻击 +" + e.atk + "  " else "") +
+                (if (e.armor > 0) "护甲 +" + e.armor + "  " else "") + e.desc
+        }
+        AlertDialog.Builder(this)
+            .setTitle("装备 " + engine.equipment.size + "/" + GameEngine.MAX_EQUIP +
+                "（攻 +" + engine.equipAtk() + " · 甲 +" + engine.equipArmor() + "）")
+            .setItems(labels, null)
+            .setNegativeButton("关闭", null)
+            .show()
     }
 
     private fun buyCardDialog() {

@@ -6,7 +6,7 @@ enum class CardCategory(val label: String, val color: Int) {
     UTILITY("功能牌", 0xFF26A69A.toInt()),
     COMBAT("战斗牌", 0xFFEF5350.toInt()),
     DEFENSE("防御牌", 0xFF42A5F5.toInt()),
-    MOVEMENT("移动牌", 0xFFA1887F.toInt()),
+    MOVEMENT("移动牌", 0xFFD98E4A.toInt()),
     MENTAL("精神牌", 0xFFAB47BC.toInt()),
     TRADE("交易牌", 0xFFFFCA28.toInt())
 }
@@ -150,12 +150,15 @@ object CardLibrary {
                     adjIdx < 22 -> 4
                     else -> 1
                 }
-                val price = 2 + when {
+                val tierBase = when {
                     adjIdx < 9 -> 0
                     adjIdx < 17 -> 1
                     adjIdx < 22 -> 3
                     else -> 5
                 }
+                // 价格跟实际强度走：数值越大越贵，修掉“32 攻 5 金 / 4 攻 45 金”的倒挂
+                val strength = v1 + v2 * 2
+                val price = 2 + tierBase + strength / 6
                 out.add(Card(id, name, cat, v1, v2, price, d, w))
                 id++
             }
