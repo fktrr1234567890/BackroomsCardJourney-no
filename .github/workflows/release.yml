@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   release:
-    name: 发布 APK
+    name: 构建并发布 APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,13 +21,31 @@ jobs:
         shell: bash
         run: echo "ver=$(tr -d '[:space:]' < release/VERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: 取回 0.0.5 打包好的 APK（zip）
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.2'
+
+      - name: 单元测试
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: 构建 debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: 打包 zip
         shell: bash
         run: |
-          curl -sSL -o "BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip" \
-            "https://aka.doubaocdn.com/s/8ZLiYGUdWp"
-          ls -l *.zip
-          unzip -l "BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip"
+          ZIP="BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip"
+          cp app/build/outputs/apk/debug/app-debug.apk app-debug.apk
+          zip -q "$ZIP" app-debug.apk
+          ls -l "$ZIP"
+          unzip -l "$ZIP"
 
       - name: 发布 Release
         shell: bash
@@ -36,9 +54,10 @@ jobs:
         run: |
           set -e
           TAG="v${{ steps.ver.outputs.ver }}"
+          ZIP="BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" \
-              --title "后室卡牌之旅 $TAG" \
-              --notes "安卓版 $TAG。Assets 里是 debug 版 APK 的压缩包，解压后安装 apk 即可。"
+              --title "后室卡牌之旅 $TAG（安卓）" \
+              --notes "安卓版 $TAG。Assets 里是 debug 版 APK 的压缩包，解压后安装 apk 即可。本版修复无限模式打完一轮又回到第 1 轮、反复弹「全部通关」的循环问题，与 PC 版 v${{ steps.ver.outputs.ver }} 同步。"
           fi
-          gh release upload "$TAG" "BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip" --clobber
+          gh release upload "$TAG" "$ZIP" --clobber
