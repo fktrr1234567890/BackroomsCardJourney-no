@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    paths:
+      - 'release/VERSION'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 发布 APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 读取版本号
+        id: ver
+        shell: bash
+        run: echo "ver=$(tr -d '[:space:]' < release/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: 取回 0.0.5 打包好的 APK（zip）
+        shell: bash
+        run: |
+          curl -sSL -o "BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip" \
+            "https://aka.doubaocdn.com/s/8ZLiYGUdWp"
+          ls -l *.zip
+          unzip -l "BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip"
+
+      - name: 发布 Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="v${{ steps.ver.outputs.ver }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "后室卡牌之旅 $TAG" \
+              --notes "安卓版 $TAG。Assets 里是 debug 版 APK 的压缩包，解压后安装 apk 即可。"
+          fi
+          gh release upload "$TAG" "BackroomsCardJourney-${{ steps.ver.outputs.ver }}-debug.apk.zip" --clobber
