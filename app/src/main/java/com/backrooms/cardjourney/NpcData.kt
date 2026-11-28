@@ -48,8 +48,61 @@ object NpcLibrary {
             NpcStock(it.name, it.desc, (it.price * markup).coerceAtLeast(4), item = it)
         }
 
+    /** 15 个额外 NPC：各有自己的名字、对白与货架，不会与常规 NPC 重名 */
+    private val specials: List<Npc> by lazy {
+        listOf(
+            Npc("提灯的守夜人", NpcKind.SURVIVOR, "「跟着灯走，别跟着声音走。」",
+                listOf("他把灯借你照了三秒。", "他说第 6 层的黑暗会吃人。", "他数着走廊里的灯，数到第七盏就停了。"),
+                cards(CardCategory.FOOD, 2) + items(ItemCategory.HOPE, 2)),
+            Npc("缝合匠 艾拉", NpcKind.MEDIC, "「别动，我把你缝回去。」",
+                listOf("她给你缝合了一道旧伤。", "她说你的心跳太快了。", "她问你要不要换一双眼。"),
+                items(ItemCategory.HEAL, 2) + items(ItemCategory.MYSTIC, 1, 3)),
+            Npc("测绘员 何", NpcKind.SURVIVOR, "「这张图我画了十一年，还没画完。」",
+                listOf("他在你的地图上补了一条线。", "他说尽头那扇门不该存在。", "他劝你原路返回。"),
+                cards(CardCategory.MOVEMENT, 2) + items(ItemCategory.EXPLORE, 2)),
+            Npc("弹药商 卡门", NpcKind.SOLDIER, "「一发换三个金币，不讲价。」",
+                listOf("他给了你两发子弹。", "他教你辨别枪声的方向。", "他说他打光过一整箱。"),
+                cards(CardCategory.COMBAT, 2) + items(ItemCategory.MONSTER, 2)),
+            Npc("旧书店主", NpcKind.MERCHANT, "「书比枪有用，至少它们不会走火。」",
+                listOf("他卖给你一本没有结尾的日记。", "他说书里有人写过你的名字。", "他叮嘱你不要读完最后一页。"),
+                cards(CardCategory.MENTAL, 2) + cards(CardCategory.UTILITY, 1) + items(ItemCategory.FATE, 1)),
+            Npc("戴耳塞的少女", NpcKind.SURVIVOR, "「……你能听见我说话吗？」",
+                listOf("她递给你一副耳塞。", "她说墙里有人在唱歌。", "她突然安静下来，指向你身后。"),
+                items(ItemCategory.HOPE, 2) + cards(CardCategory.MENTAL, 1)),
+            Npc("拾骨人", NpcKind.CULTIST, "「骨头会告诉你路怎么走。」",
+                listOf("他把一根指骨放进你口袋。", "他念了一段你听不懂的祷词。", "他说你的骨头很干净。"),
+                items(ItemCategory.MYSTIC, 2, 3) + items(ItemCategory.DOOM, 1)),
+            Npc("倒退行走的人", NpcKind.CULTIST, "「往前走就是往后走。」",
+                listOf("他倒退着给你指了指方向。", "他笑你很勇敢。", "他说他记不起自己的脸。"),
+                items(ItemCategory.FATE, 2) + cards(CardCategory.MOVEMENT, 1)),
+            Npc("维修工 老周", NpcKind.SURVIVOR, "「灯管坏了？我这儿有备的。」",
+                listOf("他帮你修好了手电。", "他抱怨地下配电房没人管。", "他给你留了一把螺丝刀。"),
+                items(ItemCategory.GUARD, 2) + items(ItemCategory.TIME, 1)),
+            Npc("穿西装的推销员", NpcKind.MERCHANT, "「先生，考虑一下后室置业吗？」",
+                listOf("他塞给你一份没人签过的合同。", "他说这里的房价只涨不跌。", "他临走前问你有没有多余的命。"),
+                cards(CardCategory.TRADE, 2) + items(ItemCategory.TRADE, 2)),
+            Npc("盲眼哨兵", NpcKind.SOLDIER, "「我看不见你，但我知道你在。」",
+                listOf("他准确说出了你身上的伤口数。", "他守的那扇门后什么也没有。", "他把刀递给你，说别用在人身上。"),
+                cards(CardCategory.COMBAT, 2, 2) + items(ItemCategory.GUARD, 1)),
+            Npc("数数的孩子", NpcKind.SURVIVOR, "「一、二、三……你排第七个。」",
+                listOf("他数到你的编号就停了。", "他把一颗弹珠放进你手里。", "他问你有没有见过他妈妈。"),
+                items(ItemCategory.HOPE, 1) + cards(CardCategory.REST, 1)),
+            Npc("雨衣下的医生", NpcKind.MEDIC, "「别问我在滴什么。」",
+                listOf("他给你打了一针，你说不清是冷还是暖。", "他说他治好过比你更糟的人。", "他问你要不要保留痛觉。"),
+                items(ItemCategory.HEAL, 1) + items(ItemCategory.MYSTIC, 2, 2)),
+            Npc("吞币的雕像", NpcKind.CULTIST, "「投一枚，换一个愿望。」",
+                listOf("雕像的眼睛动了一下。", "你听见石头肚子里有硬币在响。", "它希望你再多投一点。"),
+                items(ItemCategory.FATE, 3, 3) + cards(CardCategory.TRADE, 1)),
+            Npc("收尸队的幸存者", NpcKind.RAIDER, "「我不抢活人，只收死人东西。」",
+                listOf("他翻出一件还算完整的护具给你。", "他说这层昨天死了九个。", "他让你别死在太显眼的地方。"),
+                items(ItemCategory.GUARD, 2) + cards(CardCategory.COMBAT, 1, 2))
+        )
+    }
+
     /** 生成一个 NPC，库存按其身份决定：幸存者卖吃的，士兵卖武器，邪教徒卖神秘货 */
     fun random(): Npc {
+        // 额外 NPC 出现概率更高，让每次相遇都不太一样
+        if (Math.random() < 0.45) return specials.random()
         val kind = when (Math.random()) {
             in 0.0..0.34 -> NpcKind.SURVIVOR
             in 0.34..0.50 -> NpcKind.MEDIC

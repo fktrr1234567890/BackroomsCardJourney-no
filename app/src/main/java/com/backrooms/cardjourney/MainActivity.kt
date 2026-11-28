@@ -28,7 +28,7 @@ import kotlin.math.max
  * 显示用版本号：启动时从 APK 的 versionName 读取，
  * 避免再出现 build.gradle 已升到 0.0.9、界面还写着 0.0.7 的情况。
  */
-private var APP_VERSION = "0.0.9"
+internal var APP_VERSION = "0.1.0-beta1"
 private const val ADMIN_PASSWORD = "15807050240"
 private const val ADMIN_TAP_COUNT = 7
 
@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var bg: BackroomsBackgroundView
     private lateinit var content: FrameLayout
+    private var board: GameBoardView? = null
     private val engine = GameEngine()
     private val bgm = BgmPlayer()
 
@@ -72,6 +73,7 @@ class MainActivity : Activity() {
     private val flicker = object : Runnable {
         override fun run() {
             if (screen == "game") {
+                board?.refresh()
                 bg.invalidate()
                 root.postDelayed(this, 800)
             }
@@ -388,7 +390,7 @@ class MainActivity : Activity() {
     }
 
     private fun beginGameFlow() {
-        if (adminGate) showAdminPassword() else showCharacterSelect()
+        showCharacterSelect()
     }
 
     private fun showAdminPassword() {
@@ -735,141 +737,123 @@ class MainActivity : Activity() {
     // ---------- 对局界面 ----------
 
     private fun showGame() {
-        beginScreen("game", true)
+        // 整个对局画面交给自绘的 GameBoardView：与 PC 端同一套手绘布局
+        beginScreen("game", false)
         val s = engine.stage
-        bg.setScene(s.theme, engine.levelIndex)
-
-        val main = LinearLayout(this)
-        main.orientation = LinearLayout.VERTICAL
-        main.setPadding(dp(6), dp(6), dp(6), dp(6))
-
-        // 1. 顶部状态栏
-        val status = LinearLayout(this)
-        status.orientation = LinearLayout.HORIZONTAL
-        main.addView(status, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        status.addView(chip("生命 " + engine.hp + "/" + engine.maxHp, C_RED), lpWeight(1f, dp(2)))
-        status.addView(chip("理智 " + engine.sanity, C_PURPLE), lpWeight(1f, dp(2)))
-        status.addView(chip("金币 " + engine.coins, C_ACCENT), lpWeight(1f, dp(2)))
-        status.addView(chip("进度 " + engine.progress, C_BLUE), lpWeight(1f, dp(2)))
-        status.addView(chip("行动力 " + engine.ap, C_PANEL2), lpWeight(1f, dp(2)))
-
-        // 2. 中间核心区（权重分配，占满剩余空间）
-        val midLayout = LinearLayout(this)
-        midLayout.orientation = LinearLayout.HORIZONTAL
-        val midLp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0)
-        midLp.weight = 1f
-        midLp.topMargin = dp(6)
-        main.addView(midLayout, midLp)
-
-        // 左侧：关卡信息 + 怪物
-        val leftBox = LinearLayout(this)
-        leftBox.orientation = LinearLayout.VERTICAL
-        leftBox.background = roundedStroke(C_PANEL, dp(8).toFloat(), 1, 0x33000000)
-        leftBox.setPadding(dp(8), dp(8), dp(8), dp(8))
-        val leftLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
-        leftLp.weight = 1f
-        leftLp.setMargins(0, 0, dp(4), 0)
-        midLayout.addView(leftBox, leftLp)
-
-        leftBox.addView(tv(s.name, 15f, C_ACCENT, true), lpFull())
-        val tag = if (s.isolation) "   · 孤立效应（无 NPC）" else ""
-        leftBox.addView(tv(s.subtitle + tag, 11f, C_DIM), lpFull())
-        leftBox.addView(tv("目标: " + s.goal.label + "  " + goalText(), 12f, C_TEXT, true), lpFull())
-        leftBox.addView(tv("» " + engine.message, 11f, C_BLUE), lpFull())
-        if (engine.shield > 0) leftBox.addView(tv("护盾 " + engine.shield, 11f, C_BLUE, true), lpFull())
-
-        val monScroll = ScrollView(this)
-        leftBox.addView(monScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f })
-        val monBox = LinearLayout(this)
-        monBox.orientation = LinearLayout.VERTICAL
-        monScroll.addView(monBox, lpFull())
-
-        if (engine.monsters.isEmpty()) {
-            monBox.addView(tv("周围暂时安全……", 12f, C_DIM), lpFull())
-        } else {
-            for ((mi, m) in engine.monsters.withIndex()) {
-                val isTarget = mi == engine.target.coerceIn(0, engine.monsters.size - 1)
-                val row = LinearLayout(this)
-                row.orientation = LinearLayout.VERTICAL
-                row.background = roundedStroke(
-                    if (isTarget) C_PANEL2 else C_PANEL,
-                    dp(6).toFloat(),
-                    dp(if (isTarget) 2 else 1),
-                    if (isTarget) C_ACCENT else C_RED
-                )
-                row.isClickable = true
-                row.setOnClickListener {
-                    playClick()
-                    engine.target = mi
-                    update()
-                }
-                row.setPadding(dp(6), dp(6), dp(6), dp(6))
-                val rlp = lpFull()
-                rlp.topMargin = dp(4)
-                monBox.addView(row, rlp)
-                row.addView(tv((if (isTarget) "▶ " else "") + m.name + " [" + m.skill + "]", 13f, C_RED, true), lpFull())
-                row.addView(tv("HP " + m.hp + "/" + m.maxHp + " ATK " + m.atk, 11f, C_DIM), lpFull())
-            }
-        }
-
-        // 右侧：手牌
-        val rightBox = LinearLayout(this)
-        rightBox.orientation = LinearLayout.VERTICAL
-        rightBox.background = roundedStroke(C_PANEL, dp(8).toFloat(), 1, 0x33000000)
-        rightBox.setPadding(dp(4), dp(4), dp(4), dp(4))
-        val rightLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
-        rightLp.weight = 2f
-        rightLp.setMargins(dp(4), 0, 0, 0)
-        midLayout.addView(rightBox, rightLp)
-
-        rightBox.addView(tv("手牌 " + engine.hand.size + "/" + GameEngine.HAND_MAX + "  · 点击打出", 12f, C_DIM, true), lpFull())
-        rightBox.addView(tv("本回合报价 " + engine.offerCards.size + " 件 · 刷牌 " + engine.offerRerollCost() + " 金（" + engine.offerRerolls + "/4）", 10f, C_DIM), lpFull())
-
-        val handScroll = HorizontalScrollView(this)
-        handScroll.isHorizontalScrollBarEnabled = false
-        rightBox.addView(handScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f })
-
-        val handRow = LinearLayout(this)
-        handRow.orientation = LinearLayout.HORIZONTAL
-        handScroll.addView(handRow, lpFull())
-
-        for (i in engine.hand.indices) {
-            val card = engine.hand[i]
-            handRow.addView(makeCardView(card) {
-                engine.playCard(i)
-                update()
-            })
-        }
-
-        // 3. 底部操作栏（两排，避免小屏挤成一格）
-        val row1 = LinearLayout(this)
-        row1.orientation = LinearLayout.HORIZONTAL
-        val r1lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        r1lp.topMargin = dp(6)
-        main.addView(row1, r1lp)
-        row1.addView(actionBtn("结束回合", C_ACCENT) { engine.endTurn(); update() }, lpWeight(1.6f, dp(2)))
-        row1.addView(actionBtn("装备 " + engine.equipment.size + "/" + GameEngine.MAX_EQUIP, C_BLUE) { showEquipmentDialog() }, lpWeight(1.2f, dp(2)))
-
-        val row2 = LinearLayout(this)
-        row2.orientation = LinearLayout.HORIZONTAL
-        val r2lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        r2lp.topMargin = dp(4)
-        main.addView(row2, r2lp)
-
-        row2.addView(actionBtn("道具", C_PANEL2, C_TEXT) { openInventory() }, lpWeight(1f, dp(2)))
-        row2.addView(actionBtn("菜单", C_PANEL2, C_TEXT) { saveGame(); showMainMenu() }, lpWeight(1f, dp(2)))
-        // 管理员入口内置在对局内，不占角色选择界面
-        if (adminActive) {
-            row2.addView(actionBtn("管理", C_RED, Color.WHITE) { showAdminPanel() }, lpWeight(1f, dp(2)))
-        }
-
-        addScreen(main)
-
+        val v = GameBoardView(this, engine, boardHost)
+        v.setScene(s.theme, if (engine.infiniteMode) 1000 + engine.score else engine.levelIndex)
+        board = v
+        addScreen(v)
         syncMusic()
-        bg.invalidate()
         root.removeCallbacks(flicker)
         root.postDelayed(flicker, 800)
+    }
+
+    private val boardHost = object : GameBoardView.Host {
+        override fun boardAfterAction() {
+            update()
+        }
+
+        override fun boardEndTurn() {
+            engine.endTurn()
+            update()
+        }
+
+        override fun boardRestart() {
+            val c = engine.currentChar ?: engine.characters[0]
+            engine.newGame(c)
+            update()
+        }
+
+        override fun boardOptions() {
+            showBoardOptions()
+        }
+
+        override fun boardExitToMenu() {
+            saveGame()
+            showMainMenu()
+        }
+
+        override fun boardAdminPassword() {
+            showAdminPasswordInline()
+        }
+
+        override fun boardUseItem(index: Int) {
+            engine.useItem(index)
+            update()
+        }
+
+        override fun isAdmin(): Boolean = adminActive
+    }
+
+    /** 对局内的选项：只调音量与亮度，关闭后回到对局 */
+    private fun showBoardOptions() {
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        box.setPadding(dp(18), dp(10), dp(18), dp(6))
+
+        fun slider(title: String, value: Int, apply: (Int) -> Unit) {
+            box.addView(tv(title + "  " + value, 12f, C_TEXT, true))
+            val bar = SeekBar(this)
+            bar.max = 100
+            bar.progress = value
+            bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(b: SeekBar?, p: Int, fromUser: Boolean) {
+                    apply(p)
+                    (box.getChildAt(box.childCount - 2) as android.widget.TextView).text = title + "  " + p
+                }
+
+                override fun onStartTrackingTouch(b: SeekBar?) {}
+                override fun onStopTrackingTouch(b: SeekBar?) {}
+            })
+            box.addView(bar)
+        }
+        slider("音乐音量", musicVol) { v ->
+            musicVol = v
+            saveSettings()
+            syncMusic(force = true)
+        }
+        slider("音效音量", soundVol) { v ->
+            soundVol = v
+            saveSettings()
+        }
+        slider("界面亮度", bright) { v ->
+            bright = v
+            saveSettings()
+            applyBrightness()
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("选项")
+            .setView(box)
+            .setPositiveButton("返回对局") { _, _ -> showGame() }
+            .show()
+    }
+
+    /** 对局菜单左下角版本号连点 6 次的入口 */
+    private fun showAdminPasswordInline() {
+        if (adminActive) {
+            Toast.makeText(this, "管理员已登录", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val field = EditText(this)
+        field.inputType = InputType.TYPE_CLASS_NUMBER
+        field.hint = "管理员密码"
+        AlertDialog.Builder(this)
+            .setTitle("管理员验证")
+            .setView(field)
+            .setPositiveButton("确定") { _, _ ->
+                if (field.text.toString().trim() == ADMIN_PASSWORD) {
+                    adminActive = true
+                    Toast.makeText(this, "管理员已登录", Toast.LENGTH_SHORT).show()
+                } else {
+                    adminActive = false
+                    Toast.makeText(this, "密码错误", Toast.LENGTH_SHORT).show()
+                }
+                showGame()
+            }
+            .setNegativeButton("取消") { _, _ -> showGame() }
+            .show()
     }
 
     private fun goalText(): String {

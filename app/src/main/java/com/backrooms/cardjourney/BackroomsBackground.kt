@@ -17,7 +17,7 @@ import kotlin.math.abs
  * 裂缝、水渍、门框与出口指示牌，再叠一层颗粒、扫描线和暗角。
  * 按 Stage.theme 换配色，不再是一张两色渐变。
  */
-class BackroomsBackgroundView(context: Context) : View(context) {
+open class BackroomsBackgroundView(context: Context) : View(context) {
 
     private var theme = 0
     private var sceneSeed = 0L
@@ -99,7 +99,7 @@ class BackroomsBackgroundView(context: Context) : View(context) {
             lamps.add(Lamp(0.10f + i * 0.12f, 0.10f + rand.nextFloat() * 0.10f, rand.nextFloat()))
         }
         // 划痕
-        repeat(14) {
+        repeat(5) {
             scratches.add(Scratch(rand.nextFloat(), rand.nextFloat() * 0.55f,
                 rand.nextFloat(), rand.nextFloat() * 0.65f, 18 + rand.nextInt(40)))
         }
@@ -114,7 +114,7 @@ class BackroomsBackgroundView(context: Context) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        val horizon = h * 0.58f
+        val horizon = h * (0.545f + (sceneSeed % 5) * 0.012f)
         val vx = w * 0.5f
         val t = System.currentTimeMillis()
 
@@ -124,33 +124,42 @@ class BackroomsBackgroundView(context: Context) : View(context) {
         canvas.drawRect(0f, 0f, w, h, p)
         p.shader = null
 
-        // 2. 天花板（向灭点收窄）
+        // 尽端墙：天花板/地板/左右墙都收到它的上下两条边，门因此立在地面上
+        val endHalf = w * 0.115f
+        val endTop = horizon - h * 0.135f
+        val endBot = horizon + h * 0.135f
+
+        // 2. 尽端墙
+        p.color = darken(wallBottom, 0.18f)
+        canvas.drawRect(vx - endHalf, endTop, vx + endHalf, endBot, p)
+
+        // 3. 天花板
         path.reset()
         path.moveTo(0f, 0f)
         path.lineTo(w, 0f)
-        path.lineTo(vx + w * 0.10f, horizon)
-        path.lineTo(vx - w * 0.10f, horizon)
+        path.lineTo(vx + endHalf, endTop)
+        path.lineTo(vx - endHalf, endTop)
         path.close()
         p.color = ceilColor
         canvas.drawPath(path, p)
 
-        // 3. 地板
+        // 4. 地板
         path.reset()
         path.moveTo(0f, h)
         path.lineTo(w, h)
-        path.lineTo(vx + w * 0.13f, horizon)
-        path.lineTo(vx - w * 0.13f, horizon)
+        path.lineTo(vx + endHalf, endBot)
+        path.lineTo(vx - endHalf, endBot)
         path.close()
         p.color = floorColor
         canvas.drawPath(path, p)
 
-        // 4. 两侧墙
+        // 5. 两侧墙
         path.reset()
-        path.moveTo(0f, 0f); path.lineTo(vx - w * 0.10f, horizon); path.lineTo(vx - w * 0.13f, horizon); path.lineTo(0f, h); path.close()
+        path.moveTo(0f, 0f); path.lineTo(vx - endHalf, endTop); path.lineTo(vx - endHalf, endBot); path.lineTo(0f, h); path.close()
         p.color = wallBottom
         canvas.drawPath(path, p)
         path.reset()
-        path.moveTo(w, 0f); path.lineTo(vx + w * 0.10f, horizon); path.lineTo(vx + w * 0.13f, horizon); path.lineTo(w, h); path.close()
+        path.moveTo(w, 0f); path.lineTo(vx + endHalf, endTop); path.lineTo(vx + endHalf, endBot); path.lineTo(w, h); path.close()
         canvas.drawPath(path, p)
 
         // 5. 墙面拼板（竖向接缝 + 横向腰线）
@@ -175,14 +184,14 @@ class BackroomsBackgroundView(context: Context) : View(context) {
         p.alpha = 90
         for (i in 1..9) {
             val k = (i / 10f)
-            val yy = horizon + (h - horizon) * (k * k)
+            val yy = endBot + (h - endBot) * (k * k)
             canvas.drawLine(0f, yy, w, yy, p)
         }
         val floorBottomW = w * 0.26f
         for (i in -4..4) {
             val xBottom = vx + floorBottomW * i / 4f
-            val xTop = vx + (w * 0.13f) * i / 4f
-            canvas.drawLine(xBottom, h, xTop, horizon, p)
+            val xTop = vx + endHalf * i / 4f
+            canvas.drawLine(xBottom, h, xTop, endBot, p)
         }
         p.alpha = 255
 
@@ -212,7 +221,7 @@ class BackroomsBackgroundView(context: Context) : View(context) {
         // 8. 墙面污渍
         for (s in stains) {
             p.color = darken(wallBottom, 0.15f)
-            p.alpha = s.a
+            p.alpha = (s.a / 2)
             val cx = s.x * w
             val cy = s.y * h
             canvas.drawOval(RectF(cx - s.r * w, cy - s.r * w * 1.8f, cx + s.r * w, cy + s.r * w * 1.8f), p)
@@ -231,30 +240,40 @@ class BackroomsBackgroundView(context: Context) : View(context) {
             p.alpha = 255
         }
 
-        // 10. 尽头的门 / 出口牌
-        val doorW = w * 0.07f
-        val doorH = h * 0.13f
-        p.color = darken(ceilColor, 0.75f)
-        canvas.drawRoundRect(RectF(vx - doorW / 2f, horizon - doorH, vx + doorW / 2f, horizon), 2f, 2f, p)
+        // 10. 尽端墙上的门：门底贴地面，门框与出口牌都在墙面上
+        val doorW = w * 0.078f
+        val doorH = (endBot - endTop) * 0.72f
+        p.color = darken(ceilColor, 0.72f)
+        canvas.drawRoundRect(RectF(vx - doorW / 2f, endBot - doorH, vx + doorW / 2f, endBot), 3f, 3f, p)
+        p.color = darken(wallBottom, 0.55f)
+        p.style = android.graphics.Paint.Style.STROKE
+        p.strokeWidth = 2f
+        canvas.drawRoundRect(RectF(vx - doorW / 2f, endBot - doorH, vx + doorW / 2f, endBot), 3f, 3f, p)
+        p.style = android.graphics.Paint.Style.FILL
         p.color = lightColor
-        p.alpha = 90 + (60 * abs(sin(t / 900.0))).toInt()
-        canvas.drawRect(vx - doorW * 0.3f, horizon - doorH * 0.9f, vx + doorW * 0.3f, horizon - doorH * 0.55f, p)
+        p.alpha = 80 + (70 * abs(sin(t / 900.0))).toInt()
+        canvas.drawRect(vx - doorW * 0.3f, endBot - doorH * 0.94f, vx + doorW * 0.3f, endBot - doorH * 0.84f, p)
         p.alpha = 255
+        // 出口牌
+        p.color = Color.rgb(26, 74, 34)
+        canvas.drawRect(vx - doorW * 0.55f, endBot - doorH - h * 0.03f, vx + doorW * 0.55f, endBot - doorH - h * 0.006f, p)
 
         // 11. 划痕与裂缝
         for (s in scratches) {
             p.color = darken(wallBottom, 0.7f)
-            p.alpha = s.a
+            p.alpha = (s.a / 2)
             p.strokeWidth = 1f
-            canvas.drawLine(s.x1 * w, s.y1 * h, s.x2 * w, s.y2 * h, p)
+            val cx = s.x1 * w
+            val cy = h * 0.66f + s.y1 * h * 0.24f
+            canvas.drawLine(cx, cy, cx + w * 0.02f, cy + h * 0.006f, p)
         }
         p.alpha = 255
 
         // 12. 颗粒噪点（固定种子，不会每帧跳）
         val rand = java.util.Random(sceneSeed + 99)
         p.color = Color.WHITE
-        p.alpha = 14
-        repeat(260) {
+        p.alpha = 8
+        repeat(70) {
             val gx = rand.nextFloat() * w
             val gy = rand.nextFloat() * h
             canvas.drawCircle(gx, gy, 0.8f, p)
@@ -263,7 +282,7 @@ class BackroomsBackgroundView(context: Context) : View(context) {
 
         // 13. 扫描线
         p.color = Color.BLACK
-        p.alpha = 10
+        p.alpha = 5
         var y = 0f
         while (y < h) {
             canvas.drawRect(0f, y, w, y + 1f, p)

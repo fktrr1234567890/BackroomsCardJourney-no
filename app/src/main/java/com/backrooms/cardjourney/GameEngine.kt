@@ -21,8 +21,15 @@ data class GameEvent(
     val hpChange: Int,
     val coinChange: Int,
     val progChange: Int,
-    val sanityChange: Int = 0
+    val sanityChange: Int = 0,
+    val shieldChange: Int = 0,
+    val apChange: Int = 0,
+    /** 标签：good / bad / weird，供界面配色和“必出好事件”判定 */
+    val tag: String = "weird"
 )
+
+private const val MERCHANT_CHANCE = 0.55
+const val MAX_EQUIP = 4
 
 class GameEngine {
     companion object {
@@ -36,9 +43,8 @@ class GameEngine {
         const val REROLL_MAX_PER_TURN = 4
         // 每次进入新关卡前遇到 NPC 的概率
         const val NPC_CHANCE = 0.45
-        // 回合结束时商人出现的概率，以及最多能穿几件装备
-        const val MERCHANT_CHANCE = 0.55
         const val MAX_EQUIP = 4
+        const val MERCHANT_CHANCE = 0.55
     }
 
     var levelIndex = 0
@@ -54,12 +60,14 @@ class GameEngine {
     var monsters = mutableListOf<Monster>()
     var hand = mutableListOf<Card>()
     var inventory = mutableListOf<Item>()
-    var boughtThisTurn = false
-    /** 已装备的武器/护甲/随身装备，最多 MAX_EQUIP 件 */
+
+    /** 已装备的物品（武器/护甲/随身），最多 MAX_EQUIP 件 */
     var equipment = mutableListOf<Equipment>()
-    /** 回合结束时商人是否出现 */
+
+    /** 回合结束时商人是否出现；出现时 merchantStock 是他的货 */
     var pendingMerchant = false
     var merchantStock = mutableListOf<Equipment>()
+    var boughtThisTurn = false
     var infiniteMode = false
     var score = 0
     var completed = 0
@@ -67,6 +75,13 @@ class GameEngine {
     var gameOver = false
     var finishedAll = false
     var message = "欢迎来到后室。"
+
+    /** 玩家幸运：影响暴击率、金币掉落与事件走向 */
+    var luck = 0
+    /** 闪避回合数，本回合内免疫怪物伤害 */
+    var dodge = 0
+    /** 静默：下一回合行动力 -1 */
+    var silenced = false
 
     var currentChar: PlayerChar? = null
     var activeEvent: GameEvent? = null
@@ -101,21 +116,41 @@ class GameEngine {
     )
 
     private val monsterNames = listOf("窃皮者", "猎犬", "无面者", "笑魇", "蠕虫", "派对客", "死亡飞蛾", "巢蛛", "爬行者", "盲者")
-    private val monsterSkills = listOf("无", "无", "无", "吸血", "反伤", "狂暴", "连击", "破甲", "回血", "自爆", "噬魂")
+    private val monsterSkills = listOf(
+        "无", "无", "无", "吸血", "反伤", "狂暴", "连击", "破甲", "回血", "自爆", "噬魂",
+        "腐蚀", "恐惧", "护盾", "分裂", "召唤", "静默"
+    )
 
-    private val evtPlaces = listOf("潮湿的角落", "废弃的箱子", "昏暗的走廊", "破裂的镜子", "生锈的管道")
-    private val evtActions = listOf("你发现了一个背包", "你听到了诡异的低语", "一阵阴风吹过", "你踢到了一个硬物", "一扇门突然打开")
+    private val evtPlaces = listOf(
+        "潮湿的角落", "废弃的箱子", "昏暗的走廊", "破裂的镜子", "生锈的管道",
+        "停摆的电梯", "长满霉斑的储物间", "被水淹的半层", "挂满旧照片的过道", "没有出口的楼梯间",
+        "嗡嗡作响的配电房", "铺满地毯的放映厅"
+    )
+    private val evtActions = listOf(
+        "你发现了一个背包", "你听到了诡异的低语", "一阵阴风吹过", "你踢到了一个硬物", "一扇门突然打开",
+        "墙上的钟倒着走", "地上的水洼映出另一个你", "远处传来拖拽声", "有人在你背后轻声数数", "灯忽然全灭了",
+        "一张纸条从门缝塞进来", "空气突然变得很甜"
+    )
 
     // 事件结果同时包含正负两条分支，不再用 r[1]>0 猜正负、也不再对 hp 二次取反
-    private class EvtResult(val hp: Int, val coin: Int, val prog: Int, val sanity: Int, val text: String)
+    private class EvtResult(
+        val hp: Int, val coin: Int, val prog: Int, val sanity: Int,
+        val text: String, val shield: Int = 0, val ap: Int = 0, val tag: String = "weird"
+    )
 
     private val evtResults = listOf(
-        EvtResult(15, 5, 0, 0, "背包里是可用的补给。"),
-        EvtResult(0, 10, 15, 0, "你摸到一条通往下层的捷径。"),
-        EvtResult(8, 3, 20, 0, "笔记上记着前人走过的路线。"),
-        EvtResult(-15, 0, 0, -5, "有什么东西从背后扑了上来。"),
-        EvtResult(-8, -4, 10, 0, "背包被撕开，东西洒了一地。"),
-        EvtResult(0, 0, -15, -10, "走廊开始扭曲，你退了回来。")
+        EvtResult(15, 5, 0, 0, "背包里是可用的补给。", 0, 0, "good"),
+        EvtResult(0, 10, 15, 0, "你摸到一条通往下层的捷径。", 6, 0, "good"),
+        EvtResult(8, 3, 20, 0, "笔记上记着前人走过的路线。", 0, 1, "good"),
+        EvtResult(-15, 0, 0, -5, "有什么东西从背后扑了上来。", 0, 0, "bad"),
+        EvtResult(-8, -4, 10, 0, "背包被撕开，东西洒了一地。", 0, 0, "bad"),
+        EvtResult(0, 0, -15, -10, "走廊开始扭曲，你退了回来。", 0, 0, "bad"),
+        EvtResult(6, 8, 6, 0, "你捡到一枚还在发热的硬币。", 4, 0, "good"),
+        EvtResult(0, 14, 0, 6, "墙里的声音告诉你一个名字。", 0, 0, "weird"),
+        EvtResult(-6, 12, 8, -6, "你从一具尸体上翻出了东西。", 0, 0, "weird"),
+        EvtResult(0, 0, 0, -14, "那面镜子里的你没有跟着你走。", 0, 0, "bad"),
+        EvtResult(10, 0, 0, 8, "有人留下了半壶还温的水。", 3, 0, "good"),
+        EvtResult(-10, 0, 12, 0, "门在你身后关上，前进是唯一的路。", 0, 0, "weird")
     )
 
     val allEvents = mutableListOf<GameEvent>()
@@ -126,7 +161,9 @@ class GameEngine {
                 for (r in evtResults) {
                     val title = "事件: " + p
                     val desc = a + "。" + r.text
-                    allEvents.add(GameEvent(title, desc, r.hp, r.coin, r.prog, r.sanity))
+                    allEvents.add(
+                        GameEvent(title, desc, r.hp, r.coin, r.prog, r.sanity, r.shield, r.ap, r.tag)
+                    )
                 }
             }
         }
@@ -136,6 +173,9 @@ class GameEngine {
         get() = if (infiniteMode) StageLibrary.infinite(score) else StageLibrary.stages[levelIndex.coerceIn(0, StageLibrary.stages.size - 1)]
 
     fun newGame(char: PlayerChar) {
+        equipment.clear()
+        pendingMerchant = false
+        merchantStock.clear()
         currentChar = char
         levelIndex = 0
         coins = 12 + char.coinBonus
@@ -147,7 +187,6 @@ class GameEngine {
         cleared = false
         npcMeetings = 0
         inventory.clear()
-        resetEquipment()
         if (char.startItem) {
             inventory.add(ItemLibrary.random(1)[0])
         }
@@ -157,9 +196,9 @@ class GameEngine {
 
     fun startStage(idx: Int) {
         levelIndex = idx
+        val s = stage
         // 只要进了新关，就说明这一局还在继续，通关标记必须清掉
         finishedAll = false
-        val s = stage
         val base = if (infiniteMode) 30 + score else idx
         val charHp = currentChar?.maxHpBonus ?: 0
         maxHp = 100 + base * 4 + charHp
@@ -249,6 +288,7 @@ class GameEngine {
         val hp = (s.monsterHp * threatScale()).toInt().coerceAtLeast(1)
         val atk = (s.monsterAtk * threatScale()).toInt().coerceAtLeast(1)
         monsters.add(Monster(nm, hp, hp, atk, sk))
+        message = if (hp > s.monsterHp) "有东西从黑暗里挤了出来" else "有什么东西在靠近"
     }
 
     /** 按当前手牌压力决定是否额外刷怪（不是每回合必刷） */
@@ -282,31 +322,60 @@ class GameEngine {
             CardCategory.UTILITY -> {
                 progress += c.v1
                 coins += c.v2
+                if (c.skill == "巧手") progress += c.luck * 3
+                if (c.skill == "藏匿") shield += c.luck * 3
             }
             CardCategory.COMBAT -> {
                 if (monsters.isNotEmpty()) {
-                    hitMonster(target.coerceIn(0, monsters.size - 1), c.v1 + equipAtk())
+                    val idx = target.coerceIn(0, monsters.size - 1)
+                    var d = c.v1 + equipAtk()
+                    if (c.skill == "撕裂") d += c.luck * 2
+                    val crit = Math.random() < (c.luck + luck) * 0.04
+                    if (crit) d *= 2
+                    if (c.skill == "连击") {
+                        hitMonster(idx, d / 2)
+                        if (idx < monsters.size) hitMonster(idx, d / 2)
+                    } else {
+                        hitMonster(idx, d)
+                    }
+                    if (c.skill == "吸血") hp = min(maxHp, hp + d / 4)
+                    if (crit) message = "暴击！" + c.name
                 } else {
                     progress += c.v2
                 }
             }
             CardCategory.DEFENSE -> {
-                shield += c.v1 + equipArmor()
+                var sh = c.v1 + equipArmor()
+                if (c.skill == "坚壁") sh += c.luck * 4
+                shield += sh
                 hp = min(maxHp, hp + c.v2)
+                if (c.skill == "反震" && monsters.isNotEmpty()) {
+                    for (m in monsters) m.hp -= sh / 4
+                    for (i in monsters.indices.reversed()) if (monsters[i].hp <= 0) removeMonster(i)
+                }
             }
             CardCategory.MOVEMENT -> {
                 progress += c.v1
                 shield += c.v2 * 3
+                if (c.skill == "疾行") ap += 1
+                if (c.skill == "闪避") dodge += 1
             }
             CardCategory.MENTAL -> {
-                sanity = min(100, sanity + c.v1)
+                sanity = min(100, sanity + c.v1 + if (c.skill == "净化") c.luck * 5 else 0)
                 progress += c.v2
+                if (c.skill == "回响" && hand.size < HAND_MAX) hand.add(CardLibrary.randomOne())
             }
             CardCategory.TRADE -> {
-                coins += c.v1
+                var gain = c.v1
+                if (c.skill == "掠夺") gain += c.luck * 3
+                if (c.skill == "议价") gain += c.luck
+                coins += gain
                 progress += c.v2
             }
         }
+        // 幸运掉落：卡牌自带的幸运度会影响额外金币
+        if (c.luck > 0 && Math.random() < c.luck * 0.06) coins += 1
+        if (luck > 0 && Math.random() < luck * 0.05) coins += 1
         checkState()
         return true
     }
@@ -315,8 +384,9 @@ class GameEngine {
     private fun hitMonster(index: Int, damage: Int) {
         if (index < 0 || index >= monsters.size) return
         val m = monsters[index]
-        m.hp -= damage
-        if (m.skill == "反伤") hp -= (damage * 0.2).toInt()
+        val real = if (m.skill == "护盾") (damage * 0.7).toInt().coerceAtLeast(1) else damage
+        m.hp -= real
+        if (m.skill == "反伤") hp -= (real * 0.2).toInt()
         if (m.hp <= 0) removeMonster(index)
     }
 
@@ -329,19 +399,26 @@ class GameEngine {
         } else {
             message = "击倒了 " + m.name + "！"
         }
+        // 分裂：死亡时裂成两只更弱的个体
+        if (m.skill == "分裂" && monsters.size < MAX_MONSTERS && m.maxHp > 12) {
+            repeat(2) {
+                if (monsters.size < MAX_MONSTERS) {
+                    val childHp = (m.maxHp / 3).coerceAtLeast(6)
+                    monsters.add(Monster(m.name + "·碎片", childHp, childHp, (m.atk * 2 / 3).coerceAtLeast(1), "无"))
+                }
+            }
+            message = m.name + " 裂成了碎片！"
+        }
         if (monsters.isEmpty()) target = 0 else target = target.coerceIn(0, monsters.size - 1)
-    }
-
-    private fun resetEquipment() {
-        equipment.clear()
-        pendingMerchant = false
-        merchantStock.clear()
     }
 
     fun endTurn() {
         if (gameOver || cleared || isSpecial) return
         var dmg = 0      // 可被护盾抵挡
         var pierce = 0   // 破甲：直接穿透护盾
+        val spawner = monsters.any { it.skill == "召唤" }
+        var corrosive = false
+        var fear = false
         for (m in monsters) {
             var atk = m.atk
             if (m.skill == "狂暴" && m.hp < m.maxHp / 2) atk *= 2
@@ -350,7 +427,23 @@ class GameEngine {
             if (m.skill == "吸血") m.hp = min(m.maxHp, m.hp + m.atk / 2)
             if (m.skill == "回血") m.hp = min(m.maxHp, m.hp + 10)
             if (m.skill == "噬魂") sanity = max(0, sanity - 3)
+            if (m.skill == "腐蚀") corrosive = true
+            if (m.skill == "恐惧") fear = true
+            if (m.skill == "静默" && Math.random() < 0.4) silenced = true
         }
+        if (corrosive) {
+            maxHp = max(20, maxHp - 2)
+            hp = min(hp, maxHp)
+            message = "有东西在腐蚀你的身体"
+        }
+        if (fear) sanity = max(0, sanity - 4)
+        if (dodge > 0) {
+            dmg = 0
+            pierce = 0
+            dodge--
+            message = "你闪开了这一轮攻击"
+        }
+        if (spawner && monsters.size < MAX_MONSTERS && Math.random() < 0.3) spawnMonster()
         if (shield > 0) {
             val a = min(shield, dmg)
             shield -= a
@@ -359,7 +452,9 @@ class GameEngine {
         if (dmg + pierce > 0) hp -= dmg + pierce
 
         turn++
-        ap = 3
+        ap = (if (silenced) 2 else 3) + stage.bonusAp
+        silenced = false
+        if (stage.sanityDrain > 0) sanity = max(0, sanity - stage.sanityDrain)
         boughtThisTurn = false
         // 每回合报价过期，下一回合重新报价（同回合取消对话框不会重刷）
         offerCards.clear()
@@ -383,7 +478,7 @@ class GameEngine {
         checkState()
     }
 
-    /** 回合结束时按概率放出商人；同时清空上一轮的货 */
+    /** 回满手牌（回合结束给牌，取代原来的手动刷牌） */
     private fun rollMerchant() {
         pendingMerchant = false
         merchantStock.clear()
@@ -393,7 +488,7 @@ class GameEngine {
         }
     }
 
-    /** 买下第 index 件装备：0 成功 / 1 金币不足 / 2 装备位满 / 3 已卖出 */
+    /** 结算商人的一件装备 */
     fun buyEquipment(index: Int): Int {
         val e = merchantStock.getOrNull(index) ?: return 3
         if (coins < e.price) return 1
@@ -418,6 +513,8 @@ class GameEngine {
             coins = max(0, coins + it.coinChange)
             progress = max(0, progress + it.progChange)
             sanity = max(0, min(100, sanity + it.sanityChange))
+            shield += it.shieldChange
+            ap += it.apChange
             message = "事件结算完成"
         }
         activeEvent = null
@@ -452,7 +549,7 @@ class GameEngine {
         if (won) {
             cleared = true
             completed++
-            coins += s.reward
+            coins += s.reward + s.bonusCoins
             message = "通关！"
         }
     }
@@ -466,7 +563,15 @@ class GameEngine {
         if (infiniteMode) {
             score++
             pendingStageIndex = levelIndex
-            if (!rollNpc(stage)) startStage(levelIndex)
+            val next = StageLibrary.infinite(score)
+            if (next.isSpecialStage) {
+                // 进入「!」或「!-!」之前，先 100% 触发一个必定为好的事件
+                startStage(levelIndex)
+                activeEvent = goodEvent()
+                message = "在踏进「" + next.name + "」之前，你先遇到了一件好事"
+                return
+            }
+            if (!rollNpc(next)) startStage(levelIndex)
             return
         }
         if (levelIndex >= StageLibrary.stages.size - 1) {
@@ -644,14 +749,24 @@ class GameEngine {
         if (gameOver || cleared || index < 0 || index >= inventory.size) return
         val it = inventory.removeAt(index)
         message = "使用了道具 " + it.name
+        if (it.luckBonus > 0) luck = min(30, luck + it.luckBonus)
         when (it.category) {
-            ItemCategory.HEAL -> hp = min(maxHp, hp + it.power)
+            ItemCategory.HEAL -> {
+                hp = min(maxHp, hp + it.power)
+                shield += 2
+            }
             ItemCategory.HOPE -> {
                 hp = min(maxHp, hp + it.power / 2)
                 sanity = min(100, sanity + it.power / 2)
             }
             ItemCategory.EXPLORE -> progress += it.power
-            ItemCategory.GUARD -> shield += it.power
+            ItemCategory.GUARD -> {
+                shield += it.power
+                if (it.tag == "反震") {
+                    for (m in monsters) m.hp -= it.power / 4
+                    for (i in monsters.indices.reversed()) if (monsters[i].hp <= 0) removeMonster(i)
+                }
+            }
             ItemCategory.TRADE -> coins += it.power / 2
             ItemCategory.DOOM -> {
                 val snapshot = monsters.toList()
@@ -663,9 +778,16 @@ class GameEngine {
                 hp = max(1, hp - it.power / 4)
             }
             ItemCategory.MONSTER -> {
-                if (monsters.isNotEmpty()) hitMonster(target.coerceIn(0, monsters.size - 1), it.power)
+                if (monsters.isNotEmpty()) {
+                    val idx = target.coerceIn(0, monsters.size - 1)
+                    val strong = it.tag == "处决" && monsters[idx].hp < monsters[idx].maxHp / 2
+                    hitMonster(idx, if (strong) it.power * 2 else it.power)
+                }
             }
-            ItemCategory.TIME -> ap += 2
+            ItemCategory.TIME -> {
+                ap += 2
+                if (it.tag == "静滞") dodge += 1
+            }
             ItemCategory.FATE -> {
                 progress += it.power
                 coins += it.power / 5
@@ -677,6 +799,22 @@ class GameEngine {
             }
         }
         checkState()
+    }
+
+    /** 必定为正收益的事件，用于特殊层级前的保底 */
+    fun goodEvent(): GameEvent {
+        val titles = listOf("遗落的补给箱", "陌生人的回礼", "墙缝里的捷径", "还亮着的手电")
+        val descs = listOf(
+            "箱子里整整齐齐码着药品和干粮。",
+            "有人把东西放在门口，像是专门留给你的。",
+            "墙缝比看起来宽得多，你能直接穿过去。",
+            "光束照到的墙面上没有任何划痕。"
+        )
+        return GameEvent(
+            titles.random(), descs.random(),
+            hpChange = maxHp / 4, coinChange = 18 + score * 2, progChange = 20,
+            sanityChange = 10, shieldChange = 12, tag = "good"
+        )
     }
 
     fun generateSpecialStageName(): String {

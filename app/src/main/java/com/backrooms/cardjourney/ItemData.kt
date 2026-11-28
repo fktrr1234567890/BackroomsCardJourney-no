@@ -19,7 +19,11 @@ data class Item(
     val category: ItemCategory,
     val desc: String,
     val price: Int,
-    val power: Int
+    val power: Int,
+    /** 携带时的幸运加成（部分道具没有这项机制） */
+    val luckBonus: Int = 0,
+    /** 额外机制标签：反震 / 处决 / 回响 / 静滞 */
+    val tag: String = ""
 )
 
 object ItemLibrary {
@@ -80,7 +84,21 @@ object ItemLibrary {
             val nouns = g.second
             for (i in 0 until 100) {
                 val name = adjectives[i % 10] + nouns[i / 10]
+                // 每三件里有两件带额外机制，剩下一件维持原始效果
                 val power = 5 + (i * 7) % 60
+                var luckBonus = 0
+                var tag = ""
+                if (i % 3 != 0) {
+                    when (cat) {
+                        ItemCategory.FATE -> luckBonus = (i % 4) + 1
+                        ItemCategory.HOPE -> luckBonus = 1
+                        ItemCategory.TIME -> tag = "静滞"
+                        ItemCategory.GUARD -> tag = "反震"
+                        ItemCategory.MONSTER -> tag = "处决"
+                        ItemCategory.MYSTIC -> luckBonus = 2
+                        else -> {}
+                    }
+                }
                 var d = ""
                 when (cat) {
                     ItemCategory.MONSTER -> d = "对一只怪物造成 $power 点伤害"
@@ -94,7 +112,9 @@ object ItemLibrary {
                     ItemCategory.GUARD -> d = "获得 $power 点护盾"
                     ItemCategory.MYSTIC -> d = "恢复 ${power / 3} 生命与理智，进度 +${power / 3}"
                 }
-                out.add(Item(id, name, cat, d, 5 + (i % 20) + (i / 10), power))
+                if (luckBonus > 0) d += " · 幸运 +$luckBonus"
+                if (tag.isNotEmpty()) d += " · $tag"
+                out.add(Item(id, name, cat, d, 5 + (i % 20) + (i / 10), power, luckBonus, tag))
                 id++
             }
         }

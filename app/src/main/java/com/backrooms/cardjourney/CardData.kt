@@ -23,7 +23,11 @@ data class Card(
     val v2: Int,
     val cost: Int,
     val desc: String,
-    val weight: Int = 10
+    val weight: Int = 10,
+    /** 幸运度：影响暴击、掉落与事件走向（0 表示这张牌没有额外机制） */
+    val luck: Int = 0,
+    /** 额外机制标签：连击 / 吸血 / 净化 / 回响 / 反震 / 疾行 / 掠夺 */
+    val skill: String = ""
 ) {
     val progress: Int get() = (v1 / 2).coerceAtLeast(1)
 
@@ -150,16 +154,30 @@ object CardLibrary {
                     adjIdx < 22 -> 4
                     else -> 1
                 }
+                // 价格必须跟实际强度走：强度越高越贵。
+                // 旧版只看词条稀有度，出现“攻击 32 只卖 2 金、攻击 4 卖 7 金”的倒挂。
                 val tierBase = when {
                     adjIdx < 9 -> 0
                     adjIdx < 17 -> 1
                     adjIdx < 22 -> 3
                     else -> 5
                 }
-                // 价格跟实际强度走：数值越大越贵，修掉“32 攻 5 金 / 4 攻 45 金”的倒挂
-                val strength = v1 + v2 * 2
+                // 稀有度越高的牌附带额外机制与幸运度：幸运影响暴击、掉落与事件走向
+                val luck = if (adjIdx < 9) 0 else (adjIdx % 4) + 1
+                val skill = if (adjIdx < 9) "" else when (cat) {
+                    CardCategory.COMBAT -> listOf("", "连击", "吸血", "撕裂")[adjIdx % 4]
+                    CardCategory.DEFENSE -> listOf("", "反震", "坚壁")[adjIdx % 3]
+                    CardCategory.MOVEMENT -> listOf("", "疾行", "闪避")[adjIdx % 3]
+                    CardCategory.MENTAL -> listOf("", "净化", "回响")[adjIdx % 3]
+                    CardCategory.TRADE -> listOf("", "掠夺", "议价")[adjIdx % 3]
+                    CardCategory.UTILITY -> listOf("", "巧手", "藏匿")[adjIdx % 3]
+                    else -> ""
+                }
+                if (luck > 0) d += " · 幸运 $luck"
+                if (skill.isNotEmpty()) d = skill + "：" + d
+                val strength = v1 + v2 * 2 + luck * 3
                 val price = 2 + tierBase + strength / 6
-                out.add(Card(id, name, cat, v1, v2, price, d, w))
+                out.add(Card(id, name, cat, v1, v2, price, d, w, luck, skill))
                 id++
             }
         }

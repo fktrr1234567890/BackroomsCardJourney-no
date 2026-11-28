@@ -1,95 +1,67 @@
-# 后室卡牌之旅 / Backrooms Card Journey
+# 后室卡牌之旅（安卓版）· Backrooms Card Journey for Android
 
-一款单机 Android 卡牌 Roguelike 原型：在后室（Backrooms）里用卡牌推进进度、对抗实体、管理理智，共 30 个关卡 + 无限模式 + 特殊关卡。
+> PC 版《后室卡牌之旅》的移动端版本，共享同一套卡池、层级与玩法，界面按触屏重排为自绘手绘风格。
+> The Android build of Backrooms Card Journey, sharing the same cards, floors and rules. The interface is redrawn for touch screens in the same hand-drawn style.
 
-当前版本：**0.0.7（测试版，不推荐直接分发）**
+![version](https://img.shields.io/badge/version-0.1.0--beta1-E8C547)
+![minSdk](https://img.shields.io/badge/minSdk-26-5AA8E0)
 
-> 本仓库与 PC 版 [`BackroomsCardJourney-PC`](https://github.com/fktrr1234567890/BackroomsCardJourney-PC) 同步维护：每次改动两端一起更、各自发同名版本号 Release。
+---
 
-## 玩法
+## 中文
 
-- 每回合 3 点行动力，打出手牌推进进度 / 造成伤害 / 回血回理智。
-- 每回合结束补牌到 6 张，怪物在回合结束时攻击，护盾优先抵扣（破甲怪穿透护盾）。
-- 卡牌伤害可点击左侧怪物指定目标，被选中的怪金色描边。
-- 6 种关卡目标：寻找线索、逃脱出口、破解谜题、清剿怪物、生存到底、击杀首领。
-- 8 类卡牌（食用 / 休息 / 功能 / 战斗 / 防御 / 移动 / 精神 / 交易）、10 类道具。
-- 卡池按稀有度加权：常见 / 少见 / 稀有 / 传说四档，强力牌更少见、更贵。
-- 12 个角色按通关进度解锁，通关 30 关后进入无限模式；每 3 关必出一次特殊关卡。
-- 生命 / 理智任意归零即失败；生命、理智、回合、手牌、背包、怪物状态都会存档。
+### 功能
 
-## 商店与刷牌
+- 与 PC 版一致的卡牌、装备、商人与层级内容
+- 自绘对局界面：透视走廊、扇形手牌、事件条、左下背包图标、右下结束回合
+- 背包内查看装备与道具，点击道具即时使用
+- 每层不同背景与配乐；特殊层级仅在无限回廊中出现
+- 本地存档：退出后可继续
 
-- 每回合商店有 3 件报价，**同一回合内取消再打开不会换货**（旧版本的免费刷牌漏洞已修复）。
-- 想换货要按「刷牌」：每次花金币，同一回合越刷越贵，最多 4 次。
-- 报价与手牌上限 10 张联动，买满后不能再买。
+### 安装
 
-## NPC
+1. 从 Releases 下载最新的 `BackroomsCardJourney-<版本>-debug.apk.zip`
+2. 解压得到 APK，允许「安装未知来源应用」后安装
+3. Android 8.0（API 26）及以上
 
-- 每次进入下一关前有 45% 概率遇到 NPC；**孤立效应层级不会刷 NPC**（Level 6 / 12 / 18 / 22 / 28 / 29，无限模式第 4 轮起）。
-- 友善：幸存者（卖食物与药）、医生（治疗与精神牌）、士兵（武器与护具）、流浪商人（杂货与命运道具）。
-- 敌对：邪教徒（高价神秘货）、掠夺者（可能卖假货、谈话会被抢）。
-- 可交谈（一次）与交易，交易内容按 NPC 身份决定。
+### 操作
 
-## 动态难度（假随机）
+- 轻点手牌出牌，轻点怪物切换目标
+- 左下角背包图标打开装备与道具；右下角结束回合
+- 左上角「菜单」可继续、重来、调整选项或返回主界面
 
-- 手牌越多：刷怪概率越高、怪物生命与攻击按 0.65~1.35 倍暗中缩放，牌特别多时一次刷两只。
-- 手牌越少：刷怪概率可低至 5%，弱势关卡可能整关都不出怪。
+### 说明
 
-## 背景与音乐
+版本号含 `beta` 即为测试版，数值与内容仍在调整。
 
-- 背景是手绘透视走廊：天花板灯组（带闪烁与光锥）、墙面拼板与接缝、地砖透视网格、管道、污渍、裂缝、尽头的门、颗粒噪点、扫描线与暗角，按层级主题换 6 套配色。
-- 背景音乐按主题分 6 套音色（黄色走廊 / 工业 / 黑暗 / 办公 / 血肉 / 虚空），每关再移调，旋律与节奏各不相同。
+---
 
-## 构建
+## English
 
-需要 JDK 17 与 Android SDK（compileSdk 34）。
+### Features
 
-```bash
-gradle wrapper --gradle-version 8.2
+- Same cards, gear, merchants and floors as the desktop build
+- Hand-drawn in-game screen: perspective corridor, fan hand, event bar, bag icon, end-turn button
+- Backpack shows gear and items; tap an item to use it immediately
+- Unique background and soundtrack per floor; special floors appear only in endless mode
+- Local save and continue
 
-./gradlew assembleDebug          # 输出 app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest      # 单元测试（纯 Kotlin 逻辑，无需模拟器）
-./gradlew lintDebug              # 静态检查
-```
+### Install
 
-Release 包需要自备签名：
+1. Download the latest `BackroomsCardJourney-<version>-debug.apk.zip` from Releases
+2. Unzip, allow "install unknown apps", then install
+3. Android 8.0 (API 26) or newer
 
-```bash
-./gradlew assembleRelease   # 未配置 signingConfig 时产出未签名包
-```
+### Controls
 
-## 目录
+- Tap a card to play; tap a monster to target it
+- Bag icon at bottom-left opens gear and items; end turn at bottom-right
+- "Menu" at top-left: resume, restart, options, back to main menu
 
-```
-app/src/main/java/com/backrooms/cardjourney/
-├── CardData.kt               卡牌、稀有度权重与卡池
-├── ItemData.kt               道具与道具池
-├── StageData.kt              30 关 + 无限模式关卡表（含孤立效应与主题）
-├── NpcData.kt                NPC 身份、台词与按身份生成的库存
-├── GameEngine.kt             纯 Kotlin 逻辑（无 Android 依赖，可直接跑单元测试）
-├── BgmPlayer.kt              程序化背景音乐（6 套主题 + API 21 音频兼容）
-├── BackroomsBackground.kt    手绘透视走廊背景 View
-└── MainActivity.kt           全部界面（手写 View）
-```
+### Notes
 
-## 更新日志
+A `beta` suffix marks a test build; values and content are still being tuned.
 
-### 0.0.7
-- 修复无限模式循环：打完无限第 1 轮后又弹「全部 30 关通关」、分数归零回到第 1 轮，无限套娃。
-  - 根因：`finishedAll` 在通关第 30 关时置位，进入无限模式时没清掉，`advance()` 之后 UI 又读到该标记。
-  - `startStage()` / `advance()` 开头清标记；新增 `GameEngine.enterInfiniteMode()` 统一复位；UI 弹窗条件加 `!infiniteMode`。
-- 新增 3 条回归测试（共 28 条）。
-- 版本号 0.0.5 → 0.0.7，与 PC 版对齐。
+---
 
-### 0.0.5
-- 首版可玩原型：30 关 + 无限模式 + 特殊关卡、卡牌概率加权、NPC 系统、动态难度、内置管理员面板。
-
-## 已知问题
-
-- 界面层仍集中在单个 `MainActivity`，后续拆分再做。
-- 文案硬编码在 Kotlin 中，`strings.xml` 只有应用名，暂不支持多语言。
-- 无限模式数值只做了粗调，尚未做长时间压测。
-
-## 许可证
-
-MIT，见 [LICENSE](LICENSE)。
+MIT License · see `LICENSE`

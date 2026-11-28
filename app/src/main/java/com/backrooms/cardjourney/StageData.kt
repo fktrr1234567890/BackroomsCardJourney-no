@@ -22,7 +22,17 @@ data class Stage(
     val theme: Int = when {
         index >= 1000 -> 5
         else -> index % 6
-    }
+    },
+    /** 通关额外奖励金币（特殊层级用） */
+    val bonusCoins: Int = 0,
+    /** 每回合额外行动力 */
+    val bonusAp: Int = 0,
+    /** 每回合强制流失的理智 */
+    val sanityDrain: Int = 0,
+    /** 是否无限模式专属特殊层级（! 与 !-!） */
+    val isSpecialStage: Boolean = false,
+    /** 背景配色偏移量，让每一关的走廊观感都不同 */
+    val paletteShift: Int = index
 )
 
 object StageLibrary {
@@ -59,7 +69,45 @@ object StageLibrary {
         Stage(29, "Level 29 · 深渊", "后室的最底层，也是最后的机会", GoalType.BOSS, 1, 5, 220, 22, 50, 0xFF000000.toInt(), 0xFFB71C1C.toInt(), isolation = true, theme = 2)
     )
 
+    /** 无限模式专属：第 7、14、21… 轮是「!」，第 11、22、33… 轮是「!-!」 */
+    fun isSpecialRound(round: Int): Boolean {
+        val r = round + 1
+        return r % 7 == 0 || r % 11 == 0
+    }
+
+    private fun bangStage(r: Int, base: Stage): Stage = Stage(
+        base.index, "!", "所有的标识都反了过来",
+        GoalType.KILL_ALL, 8, 2,
+        (60 + r * 12), (12 + r * 2), 40 + r * 8,
+        0xFF120018.toInt(), 0xFF7A0A2A.toInt(), 8,
+        isolation = true, theme = 5,
+        bonusCoins = 40 + r * 6,
+        isSpecialStage = true,
+        paletteShift = 97
+    )
+
+    private fun bangBangStage(r: Int, base: Stage): Stage = Stage(
+        base.index, "!-!", "层级编号正在否定它自己",
+        GoalType.SURVIVE, 10, 1,
+        (50 + r * 10), (10 + r * 2), 45 + r * 9,
+        0xFF00121A.toInt(), 0xFF00566B.toInt(), 10,
+        isolation = true, theme = 2,
+        bonusCoins = 45 + r * 7,
+        bonusAp = 1,
+        sanityDrain = 3,
+        isSpecialStage = true,
+        paletteShift = 313
+    )
+
     fun infinite(round: Int): Stage {
+        val r = round + 1
+        val base = infiniteBase(round)
+        if (r % 7 == 0 && r % 11 != 0) return bangStage(r, base)
+        if (r % 11 == 0) return bangBangStage(r, base)
+        return base
+    }
+
+    private fun infiniteBase(round: Int): Stage {
         val r = round + 1
         val types = listOf(GoalType.KILL_ALL, GoalType.SEARCH, GoalType.SURVIVE, GoalType.ESCAPE, GoalType.PUZZLE)
         val g = types[(r - 1) % types.size]
@@ -76,7 +124,8 @@ object StageLibrary {
             0xFF1B1B1B.toInt(), 0xFF4A148C.toInt(), count,
             // 深入 4 轮之后进入孤立区：只有怪物，没有 NPC
             isolation = r >= 4,
-            theme = 5
+            theme = 5,
+            paletteShift = r * 37
         )
     }
 }
