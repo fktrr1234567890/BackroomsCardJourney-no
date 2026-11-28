@@ -28,7 +28,7 @@ import kotlin.math.max
  * 显示用版本号：启动时从 APK 的 versionName 读取，
  * 避免再出现 build.gradle 已升到 0.0.9、界面还写着 0.0.7 的情况。
  */
-internal var APP_VERSION = "0.1.0-beta1"
+internal var APP_VERSION = "0.1.0-beta2"
 private const val ADMIN_PASSWORD = "15807050240"
 private const val ADMIN_TAP_COUNT = 7
 
@@ -366,27 +366,44 @@ class MainActivity : Activity() {
     // ---------- 主菜单 ----------
 
     private fun showMainMenu() {
-        beginScreen("menu", false)
-        val sv = ScrollView(this)
-        val ll = LinearLayout(this)
-        ll.orientation = LinearLayout.VERTICAL
-        ll.gravity = Gravity.CENTER_HORIZONTAL
-        ll.setPadding(dp(24), dp(40), dp(24), dp(40))
-        sv.addView(ll, lpFull())
-        addScreen(sv)
+        beginScreen("menu", true)
+        val v = CanvasMenuView(this, menuHost)
+        v.setScene(0, 0)
+        addScreen(v)
+        syncMenuMusic()
+    }
 
-        val title = tv("后室卡牌之旅", 34f, C_ACCENT, true)
-        title.gravity = Gravity.CENTER
-        ll.addView(title, lpFull())
-        val sub = tv("v" + APP_VERSION + "  ·  30 层 + 无限模式", 12f, C_DIM)
-        sub.gravity = Gravity.CENTER
-        ll.addView(sub, lpFull())
-        ll.addView(spacer(20))
+    private fun syncMenuMusic() {
+        if (screen != "menu" || musicVol <= 0) return
+        currentTheme = -1
+        bgm.start(BgmThemes.forStage(0, 0), musicVol)
+        currentTheme = 0
+    }
 
-        ll.addView(menuButton("开始游戏") { beginGameFlow() })
-        ll.addView(menuButton("继续游戏") { continueGame() })
-        ll.addView(menuButton("设置") { showSettings() })
-        ll.addView(menuButton("关于详情") { showAbout() })
+    private val menuHost = object : CanvasMenuView.Host {
+        override fun menuStartGame() { beginGameFlow() }
+
+        override fun menuContinueGame() { continueGame() }
+
+        override fun menuOptions() {}
+
+        override fun menuExitApp() { finish() }
+
+        override fun musicVolume(): Int = musicVol
+
+        override fun setMusicVolume(v: Int) {
+            musicVol = v
+            saveSettings()
+            if (v <= 0) bgm.stop() else if (screen == "menu") syncMenuMusic() else syncMusic(true)
+        }
+
+        override fun soundVolume(): Int = soundVol
+
+        override fun setSoundVolume(v: Int) { soundVol = v; saveSettings() }
+
+        override fun brightness(): Int = bright
+
+        override fun setBrightness(v: Int) { bright = v; saveSettings(); applyBrightness() }
     }
 
     private fun beginGameFlow() {
@@ -755,8 +772,12 @@ class MainActivity : Activity() {
         }
 
         override fun boardEndTurn() {
-            engine.endTurn()
-            update()
+            when (engine.endTurn()) {
+                1 -> showEventDialog()
+                2 -> showNpcDialog()
+                3 -> showMerchantDialog()
+                else -> update()
+            }
         }
 
         override fun boardRestart() {
@@ -784,6 +805,22 @@ class MainActivity : Activity() {
         }
 
         override fun isAdmin(): Boolean = adminActive
+
+        override fun musicVolume(): Int = musicVol
+
+        override fun setMusicVolume(v: Int) {
+            musicVol = v
+            saveSettings()
+            if (v <= 0) bgm.stop() else syncMusic(true)
+        }
+
+        override fun soundVolume(): Int = soundVol
+
+        override fun setSoundVolume(v: Int) { soundVol = v; saveSettings() }
+
+        override fun brightnessValue(): Int = bright
+
+        override fun setBrightness(v: Int) { bright = v; saveSettings(); applyBrightness() }
     }
 
     /** 对局内的选项：只调音量与亮度，关闭后回到对局 */

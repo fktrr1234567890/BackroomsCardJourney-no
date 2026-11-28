@@ -32,6 +32,12 @@ class GameBoardView(
         fun boardAdminPassword()
         fun boardUseItem(index: Int)
         fun isAdmin(): Boolean
+        fun musicVolume(): Int
+        fun setMusicVolume(v: Int)
+        fun soundVolume(): Int
+        fun setSoundVolume(v: Int)
+        fun brightnessValue(): Int
+        fun setBrightness(v: Int)
     }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -43,6 +49,8 @@ class GameBoardView(
     }
 
     private var menuOpen = false
+    private var optionsOpen = false
+    private var optDrag = -1
     private var bagOpen = false
     private var verTaps = 0
     private var hint = ""
@@ -67,6 +75,7 @@ class GameBoardView(
     fun closeOverlays() {
         menuOpen = false
         bagOpen = false
+        optionsOpen = false
         invalidate()
     }
 
@@ -101,6 +110,7 @@ class GameBoardView(
 
         if (bagOpen) drawBag(canvas, w, h)
         if (menuOpen) drawMenu(canvas, w, h)
+        if (optionsOpen) drawOptions(canvas, w, h)
     }
 
     private fun chip(canvas: Canvas, x: Float, y: Float, label: String, color: Int): Float {
@@ -108,7 +118,7 @@ class GameBoardView(
         text.color = color
         val tw = text.measureText(label)
         val r = RectF(x, y, x + tw + sp(18f), y + sp(20f))
-        paint.color = Color.argb(45, Color.red(color), Color.green(color), Color.blue(color))
+        paint.color = Color.argb(135, 12, 12, 12)
         canvas.drawRoundRect(r, sp(10f), sp(10f), paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = sp(1f)
@@ -217,24 +227,37 @@ class GameBoardView(
             val selected = engine.target == i
             paint.color = Color.argb(if (selected) 60 else 24, 0, 0, 0)
             canvas.drawRoundRect(RectF(r.left - sp(8f), r.top - sp(8f), r.right + sp(8f), r.bottom + sp(8f)), sp(10f), sp(10f), paint)
-            // 身体剪影
-            val body = Path()
-            body.moveTo(r.centerX(), r.top)
-            body.quadTo(r.right + sp(6f), r.centerY(), r.right - sp(10f), r.bottom)
-            body.lineTo(r.left + sp(10f), r.bottom)
-            body.quadTo(r.left - sp(6f), r.centerY(), r.centerX(), r.top)
-            body.close()
-            paint.color = Color.argb(210, 18, 18, 20)
-            canvas.drawPath(body, paint)
-            paint.style = Paint.Style.STROKE
+            // 人形剪影：头/肩/躯干/手臂按同一比例缩放，避免被拉扁
+            val headR = r.width() * 0.27f
+            val hx = r.centerX()
+            val hy = r.top + headR + sp(2f)
+            paint.color = Color.argb(225, 16, 16, 18)
+            canvas.drawCircle(hx, hy, headR, paint)
+            val bodyTop = hy + headR * 0.82f
+            val shoulder = r.width() * 0.86f
+            val hipY = r.bottom - (r.bottom - bodyTop) * 0.24f
+            val bodyPath = Path()
+            bodyPath.moveTo(hx - shoulder / 2f, bodyTop)
+            bodyPath.quadTo(hx, bodyTop - headR * 0.28f, hx + shoulder / 2f, bodyTop)
+            bodyPath.lineTo(hx + shoulder * 0.40f, hipY)
+            bodyPath.lineTo(hx - shoulder * 0.40f, hipY)
+            bodyPath.close()
+            canvas.drawPath(bodyPath, paint)
+            // 手臂
+            paint.strokeWidth = r.width() * 0.14f
+            paint.color = Color.argb(210, 16, 16, 18)
+            canvas.drawLine(hx - shoulder / 2f, bodyTop + headR * 0.15f, hx - shoulder * 0.62f, hipY, paint)
+            canvas.drawLine(hx + shoulder / 2f, bodyTop + headR * 0.15f, hx + shoulder * 0.62f, hipY, paint)
             paint.strokeWidth = sp(1.4f)
+            paint.style = Paint.Style.STROKE
             paint.color = if (selected) amber else Color.argb(150, 90, 90, 90)
-            canvas.drawPath(body, paint)
+            canvas.drawCircle(hx, hy, headR, paint)
+            canvas.drawPath(bodyPath, paint)
             paint.style = Paint.Style.FILL
             // 眼睛
-            paint.color = if (selected) amber else Color.argb(220, 224, 82, 82)
-            canvas.drawCircle(r.centerX() - sp(12f), r.top + sp(38f), sp(4f), paint)
-            canvas.drawCircle(r.centerX() + sp(12f), r.top + sp(38f), sp(4f), paint)
+            paint.color = if (selected) amber else Color.argb(230, 224, 82, 82)
+            canvas.drawCircle(hx - headR * 0.36f, hy - headR * 0.06f, headR * 0.17f, paint)
+            canvas.drawCircle(hx + headR * 0.36f, hy - headR * 0.06f, headR * 0.17f, paint)
             // 名字与血条
             text.textSize = sp(10f)
             text.color = txt
@@ -255,7 +278,8 @@ class GameBoardView(
 
     private fun drawEventBar(canvas: Canvas, w: Float, h: Float) {
         val bw = min(w - sp(40f), sp(560f))
-        val r = RectF(w / 2f - bw / 2f, h - sp(212f), w / 2f + bw / 2f, h - sp(186f))
+        val cardTop = h - sp(150f)
+        val r = RectF(w / 2f - bw / 2f, cardTop - sp(50f), w / 2f + bw / 2f, cardTop - sp(24f))
         paint.color = Color.argb(190, 16, 16, 16)
         canvas.drawRoundRect(r, sp(8f), sp(8f), paint)
         paint.style = Paint.Style.STROKE
@@ -280,13 +304,13 @@ class GameBoardView(
     }
 
     private fun cardRect(i: Int, n: Int, w: Float, h: Float): RectF {
-        val cw = sp(74f)
-        val ch = sp(104f)
+        val cw = sp(62f)
+        val ch = sp(96f)
         val mid = (n - 1) / 2f
         val t = if (n <= 1) 0f else (i - mid) / mid
-        val spacing = sp(30f)
+        val spacing = sp(46f)
         val cx = w / 2f + t * (n - 1) * spacing / 2f
-        val top = h - sp(158f)
+        val top = h - sp(150f)
         return RectF(cx - cw / 2f, top, cx + cw / 2f, top + ch)
     }
 
@@ -358,10 +382,23 @@ class GameBoardView(
         paint.color = Color.argb(180, 232, 197, 71)
         canvas.drawRoundRect(r, sp(10f), sp(10f), paint)
         paint.style = Paint.Style.FILL
+        val cx = r.centerX()
         paint.color = amber
-        canvas.drawRoundRect(RectF(r.left + sp(12f), r.top + sp(14f), r.right - sp(12f), r.bottom - sp(8f)), sp(5f), sp(5f), paint)
-        paint.color = Color.argb(255, 20, 20, 22)
-        canvas.drawRoundRect(RectF(r.left + sp(18f), r.bottom - sp(16f), r.right - sp(18f), r.bottom - sp(11f)), sp(2f), sp(2f), paint)
+        val bodyTop = r.top + sp(13f)
+        canvas.drawRoundRect(RectF(cx - sp(13f), bodyTop, cx + sp(13f), r.bottom - sp(7f)), sp(6f), sp(6f), paint)
+        // 提手
+        canvas.drawArc(RectF(cx - sp(7f), bodyTop - sp(8f), cx + sp(7f), bodyTop + sp(6f)), 180f, 180f, false, paint)
+        // 包盖与前袋
+        paint.color = Color.argb(255, 25, 25, 27)
+        canvas.drawRoundRect(RectF(cx - sp(13f), bodyTop + sp(2f), cx + sp(13f), bodyTop + sp(7f)), sp(2.5f), sp(2.5f), paint)
+        canvas.drawRoundRect(RectF(cx - sp(9f), r.bottom - sp(16f), cx + sp(9f), r.bottom - sp(8f)), sp(3f), sp(3f), paint)
+        // 肩带
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = sp(1.4f)
+        paint.color = amber
+        canvas.drawArc(RectF(cx - sp(18f), bodyTop + sp(3f), cx - sp(8f), bodyTop + sp(21f)), 90f, 120f, false, paint)
+        canvas.drawArc(RectF(cx + sp(8f), bodyTop + sp(3f), cx + sp(18f), bodyTop + sp(21f)), -30f, 120f, false, paint)
+        paint.style = Paint.Style.FILL
         if (engine.inventory.size > 0) {
             paint.color = red
             canvas.drawCircle(r.right - sp(3f), r.top + sp(3f), sp(8f), paint)
@@ -401,6 +438,59 @@ class GameBoardView(
         val pw = min(width - sp(24f), sp(360f))
         val ph = min(height - sp(40f), sp(420f))
         return RectF(width / 2f - pw / 2f, height / 2f - ph / 2f, width / 2f + pw / 2f, height / 2f + ph / 2f)
+    }
+
+    private fun optTrack(i: Int): RectF {
+        val r = panelRect()
+        val top = r.top + sp(60f) + i * sp(50f)
+        return RectF(r.left + sp(26f), top + sp(12f), r.right - sp(26f), top + sp(23f))
+    }
+
+    private fun drawOptions(canvas: Canvas, w: Float, h: Float) {
+        paint.color = Color.argb(200, 0, 0, 0)
+        canvas.drawRect(0f, 0f, w, h, paint)
+        val r = panelRect()
+        paint.color = Color.argb(246, 18, 18, 18)
+        canvas.drawRoundRect(r, sp(10f), sp(10f), paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = sp(1.3f)
+        paint.color = Color.argb(180, 232, 197, 71)
+        canvas.drawRoundRect(r, sp(10f), sp(10f), paint)
+        paint.style = Paint.Style.FILL
+
+        bold.textSize = sp(16f)
+        bold.color = amber
+        canvas.drawText("选项", r.left + sp(20f), r.top + sp(32f), bold)
+
+        val labels = listOf("音乐音量", "音效音量", "界面亮度")
+        val values = listOf(host.musicVolume(), host.soundVolume(), host.brightnessValue())
+        for (i in 0 until 3) {
+            val tr = optTrack(i)
+            text.textSize = sp(10f)
+            text.color = txt
+            canvas.drawText(labels[i], tr.left, tr.top - sp(7f), text)
+            bold.textSize = sp(10f)
+            bold.color = amber
+            canvas.drawText(values[i].toString(), tr.right - bold.measureText(values[i].toString()), tr.top - sp(7f), bold)
+            paint.color = Color.argb(255, 46, 46, 46)
+            canvas.drawRoundRect(tr, sp(5f), sp(5f), paint)
+            paint.color = amber
+            canvas.drawRoundRect(RectF(tr.left, tr.top, tr.left + tr.width() * values[i] / 100f, tr.bottom), sp(5f), sp(5f), paint)
+            paint.color = Color.rgb(255, 236, 160)
+            canvas.drawCircle(tr.left + tr.width() * values[i] / 100f, tr.centerY(), sp(6f), paint)
+        }
+
+        val back = RectF(r.right - sp(104f), r.bottom - sp(44f), r.right - sp(16f), r.bottom - sp(14f))
+        paint.color = Color.argb(220, 26, 26, 26)
+        canvas.drawRoundRect(back, sp(6f), sp(6f), paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = sp(1.2f)
+        paint.color = Color.argb(170, 232, 197, 71)
+        canvas.drawRoundRect(back, sp(6f), sp(6f), paint)
+        paint.style = Paint.Style.FILL
+        bold.textSize = sp(11f)
+        bold.color = txt
+        canvas.drawText("返回对局", back.centerX() - bold.measureText("返回对局") / 2f, back.centerY() + sp(4f), bold)
     }
 
     private fun drawMenu(canvas: Canvas, w: Float, h: Float) {
@@ -543,6 +633,34 @@ class GameBoardView(
         val x = e.x
         val y = e.y
 
+        if (optionsOpen) {
+            val r = panelRect()
+            if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) {
+                for (i in 0 until 3) {
+                    val tr = optTrack(i)
+                    if (y >= tr.top - sp(14f) && y <= tr.bottom + sp(16f) && x >= tr.left - sp(12f) && x <= tr.right + sp(12f)) {
+                        if (e.action == MotionEvent.ACTION_DOWN) optDrag = i
+                        if (optDrag == i) {
+                            val v = ((x - tr.left) / tr.width() * 100f).toInt().coerceIn(0, 100)
+                            when (i) {
+                                0 -> host.setMusicVolume(v)
+                                1 -> host.setSoundVolume(v)
+                                else -> host.setBrightness(v)
+                            }
+                            invalidate()
+                        }
+                        return true
+                    }
+                }
+            }
+            if (e.action == MotionEvent.ACTION_UP) optDrag = -1
+            if (e.action == MotionEvent.ACTION_DOWN) {
+                val back = RectF(r.right - sp(104f), r.bottom - sp(44f), r.right - sp(16f), r.bottom - sp(14f))
+                if (inR(x, y, back)) { optionsOpen = false; invalidate() }
+            }
+            return true
+        }
+
         if (menuOpen) {
             val r = panelRect()
             val verRect = RectF(r.left + sp(6f), r.bottom - sp(22f), r.left + sp(90f), r.bottom)
@@ -565,7 +683,7 @@ class GameBoardView(
                     when (k) {
                         "resume" -> invalidate()
                         "restart" -> host.boardRestart()
-                        "opts" -> host.boardOptions()
+                        "opts" -> { optionsOpen = true; menuOpen = false; invalidate() }
                         "exit" -> host.boardExitToMenu()
                     }
                     return true

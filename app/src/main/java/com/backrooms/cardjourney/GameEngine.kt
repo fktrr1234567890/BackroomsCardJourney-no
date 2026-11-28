@@ -304,6 +304,8 @@ class GameEngine {
 
     fun playCard(index: Int): Boolean {
         if (gameOver || cleared || ap <= 0 || index < 0 || index >= hand.size) return false
+        // 有未结算的事件/NPC/商人时不允许出牌，避免弹窗与棋盘状态互相打架
+        if (activeEvent != null || pendingNpc != null || (pendingMerchant && merchantStock.isNotEmpty())) return false
         val c = hand[index]
         ap--
         hand.removeAt(index)
@@ -412,8 +414,12 @@ class GameEngine {
         if (monsters.isEmpty()) target = 0 else target = target.coerceIn(0, monsters.size - 1)
     }
 
-    fun endTurn() {
-        if (gameOver || cleared || isSpecial) return
+    /** 结束回合；返回 0 成功，1 事件待结算，2 NPC 待处理，3 商人待处理（不会静默推进回合） */
+    fun endTurn(): Int {
+        if (gameOver || cleared || isSpecial) return 0
+        if (activeEvent != null) return 1
+        if (pendingNpc != null) return 2
+        if (pendingMerchant && merchantStock.isNotEmpty()) return 3
         var dmg = 0      // 可被护盾抵挡
         var pierce = 0   // 破甲：直接穿透护盾
         val spawner = monsters.any { it.skill == "召唤" }
@@ -466,7 +472,7 @@ class GameEngine {
             activeEvent = allEvents.random()
             // 事件可能在结算前就已经把人打死（扣血/扣理智），这里先判定一次状态
             checkState()
-            return
+            return 0
         }
 
         val s = stage
@@ -476,6 +482,7 @@ class GameEngine {
         refillHand()
         rollMerchant()
         checkState()
+        return 0
     }
 
     /** 回满手牌（回合结束给牌，取代原来的手动刷牌） */
